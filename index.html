@@ -1,0 +1,790 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Email Annotation Study</title>
+<style>
+  :root {
+    --bg: #f7f7f5;
+    --panel: #ffffff;
+    --ink: #1f2328;
+    --muted: #6b7280;
+    --line: #e3e3e0;
+    --accent: #b5432c;
+    --accent-soft: #f3e3df;
+    --good: #2f6f4f;
+    --warn: #b58900;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+    background: var(--bg);
+    color: var(--ink);
+  }
+  .wrap { max-width: 860px; margin: 0 auto; padding: 32px 20px 80px; }
+  h1 { font-size: 1.4rem; margin: 0 0 4px; }
+  .subtitle { color: var(--muted); font-size: 0.95rem; margin-bottom: 28px; }
+  .card {
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: 24px;
+    margin-bottom: 20px;
+  }
+  button {
+    font-family: inherit;
+    font-size: 0.95rem;
+    border: none;
+    border-radius: 7px;
+    padding: 10px 18px;
+    cursor: pointer;
+    background: var(--accent);
+    color: white;
+  }
+  button.secondary { background: transparent; color: var(--ink); border: 1px solid var(--line); }
+  button:disabled { opacity: 0.45; cursor: not-allowed; }
+  input[type=text] {
+    font-family: inherit; font-size: 0.95rem; padding: 9px 12px;
+    border: 1px solid var(--line); border-radius: 7px; width: 100%;
+  }
+  .hidden { display: none !important; }
+  .pid-badge {
+    display: inline-block; background: var(--accent-soft); color: var(--accent);
+    padding: 3px 10px; border-radius: 20px; font-size: 0.82rem; font-weight: 600;
+  }
+  .progress-line { color: var(--muted); font-size: 0.85rem; margin-top: 6px; }
+  .email-subject { font-weight: 600; font-size: 1.05rem; margin-bottom: 14px; }
+  .sentence-box {
+    background: var(--accent-soft); border-left: 4px solid var(--accent);
+    padding: 16px; border-radius: 6px; font-size: 1.05rem; line-height: 1.5;
+    margin-bottom: 12px;
+  }
+  .tick-line { font-size: 0.82rem; color: var(--muted); margin-bottom: 20px; }
+  .label-group { margin-bottom: 18px; }
+  .label-group h3 { font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); margin: 0 0 10px; }
+  .label-option {
+    display: flex; align-items: flex-start; gap: 8px;
+    padding: 8px 10px; border-radius: 6px; margin-bottom: 4px; cursor: pointer;
+  }
+  .label-option:hover { background: #f2f2ef; }
+  .label-option input { margin-top: 3px; }
+  .label-option .name { font-weight: 500; }
+  .label-option .def { color: var(--muted); font-size: 0.82rem; }
+  .unclear-row {
+    display: flex; align-items: center; gap: 8px; padding: 12px;
+    border: 1px solid var(--line); border-radius: 6px; margin-top: 10px;
+    cursor: pointer; transition: background 0.12s, border-color 0.12s;
+  }
+  .unclear-row:hover { background: #f2f2ef; }
+  .unclear-row label { cursor: pointer; flex: 1; }
+  .unclear-row input { cursor: pointer; }
+  .unclear-row.active {
+    background: var(--accent-soft); border-color: var(--accent);
+    color: var(--accent); font-weight: 600;
+  }
+  .actions { display: flex; justify-content: space-between; margin-top: 20px; }
+  .modal-backdrop {
+    position: fixed; inset: 0; background: rgba(0,0,0,0.4);
+    display: flex; align-items: center; justify-content: center; padding: 20px; z-index: 50;
+  }
+  .modal { background: white; border-radius: 10px; padding: 24px; max-width: 480px; width: 100%; max-height: 85vh; overflow-y: auto; }
+  .rating-row { margin-bottom: 16px; }
+  .rating-row .label-name { font-weight: 600; margin-bottom: 6px; }
+  .rating-scale { display: flex; gap: 6px; }
+  .rating-scale button {
+    flex: 1; background: #f2f2ef; color: var(--ink); border: 1px solid var(--line);
+    padding: 8px 0; font-weight: 600;
+  }
+  .rating-scale button.selected { background: var(--accent); color: white; border-color: var(--accent); }
+  .rating-hint { color: var(--muted); font-size: 0.78rem; margin-top: 4px; }
+  .error-text { color: var(--accent); font-size: 0.88rem; margin-top: 10px; }
+  .status-good { color: var(--good); }
+  .spinner { display: inline-block; width: 14px; height: 14px; border: 2px solid var(--line); border-top-color: var(--accent); border-radius: 50%; animation: spin 0.7s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Email Annotation Study</h1>
+  <div class="subtitle">Label the emotional tone and persuasion strategy of each sentence.</div>
+
+  <!-- LOADING -->
+  <div id="screen-loading" class="card">
+    <span class="spinner"></span> Connecting...
+  </div>
+
+  <!-- STUDY FULL -->
+  <div id="screen-full" class="card hidden">
+    <h2>Thank you for your interest!</h2>
+    <p>This study has reached its full 15 participants. No further responses are needed. Thank you for checking.</p>
+  </div>
+
+  <!-- INTRO -->
+  <div id="screen-intro" class="card hidden">
+    <h2>Before you begin</h2>
+    <p>You'll read 4 short emails and label each sentence with the emotions and persuasion strategies you think it uses. It takes about 15-20 minutes. Your progress is saved automatically, so you can close this tab and come back later.</p>
+    <p style="margin-top:16px;">Already started on another device? Enter your participant ID below to resume instead of starting fresh.</p>
+    <input id="resume-id-input" type="text" placeholder="e.g. P07" style="margin-bottom:10px;">
+    <div style="display:flex; gap:10px;">
+      <button id="btn-resume">Resume with this ID</button>
+      <button id="btn-start" class="secondary">Start as a new participant</button>
+    </div>
+    <div id="intro-error" class="error-text hidden"></div>
+  </div>
+
+  <!-- ANNOTATION -->
+  <div id="screen-annotation" class="card hidden">
+    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:14px;">
+      <span class="pid-badge" id="pid-badge"></span>
+      <span class="progress-line" id="overall-progress"></span>
+    </div>
+    <div class="email-subject" id="email-subject"></div>
+    <div class="sentence-box" id="sentence-text"></div>
+    <div class="tick-line" id="tick-line"></div>
+
+    <div class="label-group">
+      <h3>Emotional labels</h3>
+      <div id="emotional-options"></div>
+    </div>
+    <div class="label-group">
+      <h3>Strategy labels</h3>
+      <div id="strategy-options"></div>
+    </div>
+
+    <div class="unclear-row" id="unclear-row">
+      <input type="checkbox" id="unclear-checkbox">
+      <label for="unclear-checkbox">This sentence is unclear / hard to label</label>
+    </div>
+
+    <div class="actions">
+      <button id="btn-prev" class="secondary">Back</button>
+      <button id="btn-next">Next</button>
+    </div>
+    <div id="annotation-error" class="error-text hidden"></div>
+  </div>
+
+  <!-- DONE -->
+  <div id="screen-done" class="card hidden">
+    <h2 class="status-good">All done -- thank you!</h2>
+    <p>You've completed all 4 assigned emails. Your participant ID was <strong id="done-pid"></strong>.</p>
+  </div>
+</div>
+
+<!-- Likert modal -->
+<div id="likert-modal" class="modal-backdrop hidden">
+  <div class="modal">
+    <h3>Rate how strongly each label fits</h3>
+    <p class="rating-hint">1 = weak or uncertain fit, 5 = very strong and clear fit</p>
+    <div id="likert-rows"></div>
+    <div style="display:flex; justify-content:flex-end; gap:10px; margin-top:10px;">
+      <button id="likert-cancel" class="secondary">Back</button>
+      <button id="likert-confirm">Confirm and continue</button>
+    </div>
+  </div>
+</div>
+
+<script type="module">
+import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
+import {
+  getAuth, signInAnonymously, onAuthStateChanged
+} from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
+import {
+  getFirestore, doc, getDoc, setDoc, updateDoc, runTransaction,
+  collection, getDocs, query, where, arrayUnion, serverTimestamp
+} from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+
+// ---------------------------------------------------------------------
+// PASTE YOUR FIREBASE WEB CONFIG HERE (Firebase console > Project settings
+// > General > Your apps > Web app > SDK setup and configuration).
+// This config is safe to be public -- Firestore security rules (not this
+// config) are what actually protect the data.
+// ---------------------------------------------------------------------
+const firebaseConfig = {
+  apiKey: "AIzaSyDpX_sCuykEEyihYBn8F_m8Tfc27cPCVRc",
+  authDomain: "undergrad-annotation-study.firebaseapp.com",
+  projectId: "undergrad-annotation-study",
+  storageBucket: "undergrad-annotation-study.firebasestorage.app",
+  messagingSenderId: "32587391823",
+  appId: "1:32587391823:web:1f364b07e75046fbc79b3a"
+};
+
+const app = initializeApp(firebaseConfig);
+const auth = getAuth(app);
+const db = getFirestore(app);
+
+const TOTAL_PARTICIPANTS = 15;
+const EMAILS_PER_PARTICIPANT = 4;
+const PARTICIPANTS_PER_EMAIL = 3;
+const LOCAL_STORAGE_KEY = "phishing_study_participant_id";
+
+const EMOTIONAL_LABELS = [
+  { id: "trust_or_credibility", name: "Trust / Credibility", def: "Sender appears legitimate, official, or credible." },
+  { id: "urgency", name: "Urgency", def: "Creates time pressure to act quickly." },
+  { id: "fear", name: "Fear", def: "Creates a sense of threat or danger." },
+  { id: "concern", name: "Concern", def: "Creates worry or unease about a situation." },
+  { id: "uncertainty", name: "Uncertainty", def: "Creates doubt or ambiguity about what's true." },
+  { id: "excitement_or_temptation", name: "Excitement / Temptation", def: "Creates positive anticipation or desire." },
+  { id: "neutral", name: "Neutral", def: "No clear emotional tone. Cannot be combined with other emotional labels." },
+];
+
+const STRATEGY_LABELS = [
+  { id: "action_request", name: "Action Request", def: "Asks the reader to do something specific." },
+  { id: "credential_request", name: "Credential Request", def: "Asks for a password, PIN, or login details." },
+  { id: "link_request", name: "Link Request", def: "Asks the reader to click a link." },
+  { id: "attachment_or_document_request", name: "Attachment / Document Request", def: "Asks the reader to open an attachment or document." },
+  { id: "account_or_service_threat", name: "Account / Service Threat", def: "Threatens suspension, loss of access, or a service problem." },
+  { id: "security_warning", name: "Security Warning", def: "Warns of a security issue or suspicious activity." },
+  { id: "impersonation", name: "Impersonation", def: "Poses as a known company, colleague, or authority." },
+  { id: "official_pressure", name: "Official Pressure", def: "Uses official or institutional-sounding language." },
+  { id: "specific_personalization", name: "Specific Personalization", def: "Uses a specific personal detail (name, order #, account #)." },
+  { id: "reward_or_opportunity_offer", name: "Reward / Opportunity Offer", def: "Offers a reward, prize, or opportunity." },
+  { id: "information_lure", name: "Information Lure", def: "Dangles information (not a reward) to get engagement." },
+  { id: "obligation_pressure", name: "Obligation Pressure", def: "Creates a sense of duty or owed response." },
+];
+
+let state = {
+  participantId: null,
+  authUid: null,
+  assignedEmailIds: [],
+  emailDocs: {},          // blind_id -> {subject, sentences}
+  progress: {},           // blind_id -> {current_step}
+  currentEmailIndex: 0,
+  currentStepIndex: 0,    // 0-based into sentences array
+  selectedEmotional: new Set(),
+  selectedStrategy: new Set(),
+  unclear: false,
+};
+
+function show(id) {
+  ["screen-loading", "screen-full", "screen-intro", "screen-annotation", "screen-done"]
+    .forEach(s => document.getElementById(s).classList.toggle("hidden", s !== id));
+}
+
+// ---------------------------------------------------------------------
+// Auth
+// ---------------------------------------------------------------------
+onAuthStateChanged(auth, async (user) => {
+  if (!user) {
+    await signInAnonymously(auth).catch(err => {
+      console.error("Anonymous sign-in failed:", err);
+      show("screen-intro");
+      document.getElementById("intro-error").textContent =
+        "Could not connect. Please refresh the page. (" + err.message + ")";
+      document.getElementById("intro-error").classList.remove("hidden");
+    });
+    return;
+  }
+  state.authUid = user.uid;
+  const savedId = localStorage.getItem(LOCAL_STORAGE_KEY);
+  if (savedId) {
+    await resumeParticipant(savedId);
+  } else {
+    show("screen-intro");
+  }
+});
+
+document.getElementById("btn-start").addEventListener("click", startNewParticipant);
+document.getElementById("btn-resume").addEventListener("click", () => {
+  const id = document.getElementById("resume-id-input").value.trim().toUpperCase();
+  if (!id) return;
+  resumeParticipant(id);
+});
+
+// ---------------------------------------------------------------------
+// New participant: claim an ID, assign 4 emails
+// ---------------------------------------------------------------------
+async function startNewParticipant() {
+  try {
+    const counterRef = doc(db, "counters", "participant_id");
+    const participantId = await runTransaction(db, async (tx) => {
+      const snap = await tx.get(counterRef);
+      const nextId = snap.exists() ? snap.data().next_id : 1;
+      if (nextId > TOTAL_PARTICIPANTS) {
+        return null; // study full
+      }
+      tx.set(counterRef, { next_id: nextId + 1 });
+      return "P" + String(nextId).padStart(2, "0");
+    });
+
+    if (!participantId) {
+      show("screen-full");
+      return;
+    }
+
+    const assignedIds = await assignEmails(participantId);
+    if (assignedIds.length === 0) {
+      show("screen-full");
+      return;
+    }
+
+    await setDoc(doc(db, "participants", participantId), {
+      participant_id: participantId,
+      auth_uid: state.authUid,
+      assigned_email_ids: assignedIds,
+      progress: {},
+      created_at: serverTimestamp(),
+    });
+
+    localStorage.setItem(LOCAL_STORAGE_KEY, participantId);
+    state.participantId = participantId;
+    state.assignedEmailIds = assignedIds;
+    state.progress = {};
+    await loadCurrentEmail();
+    show("screen-annotation");
+  } catch (err) {
+    console.error(err);
+    document.getElementById("intro-error").textContent = "Something went wrong starting the study: " + err.message;
+    document.getElementById("intro-error").classList.remove("hidden");
+  }
+}
+
+// Randomly picks EMAILS_PER_PARTICIPANT emails from whichever currently
+// have the fewest assignments, then atomically claims them.
+async function assignEmails(participantId) {
+  const emailsSnap = await getDocs(collection(db, "emails"));
+  const openEmails = [];
+  emailsSnap.forEach(d => {
+    const data = d.data();
+    if ((data.assigned_count || 0) < PARTICIPANTS_PER_EMAIL) {
+      openEmails.push({ id: d.id, assigned_count: data.assigned_count || 0 });
+    }
+  });
+
+  if (openEmails.length === 0) return [];
+
+  // Prefer the least-assigned emails first, but keep some randomness among
+  // a slightly larger pool so assignment isn't perfectly deterministic.
+  openEmails.sort((a, b) => a.assigned_count - b.assigned_count);
+  const poolSize = Math.min(openEmails.length, Math.max(EMAILS_PER_PARTICIPANT * 2, 8));
+  const pool = openEmails.slice(0, poolSize);
+  shuffleArray(pool);
+  const candidates = pool.slice(0, Math.min(EMAILS_PER_PARTICIPANT, pool.length)).map(e => e.id);
+
+  const claimed = [];
+  for (const emailId of candidates) {
+    try {
+      await runTransaction(db, async (tx) => {
+        const ref = doc(db, "emails", emailId);
+        const snap = await tx.get(ref);
+        const data = snap.data();
+        const currentCount = data.assigned_count || 0;
+        if (currentCount >= PARTICIPANTS_PER_EMAIL) {
+          throw new Error("full"); // someone else claimed it first; skip
+        }
+        const newCount = currentCount + 1;
+        tx.update(ref, {
+          assigned_count: newCount,
+          assigned_participant_ids: arrayUnion(participantId),
+          status: newCount >= PARTICIPANTS_PER_EMAIL ? "assigned_full" : "open",
+        });
+      });
+      claimed.push(emailId);
+    } catch (e) {
+      // This email got claimed by someone else between our read and write;
+      // just move on and try the next candidate below if we're short.
+    }
+  }
+
+  // If a race condition left us short, try to top up from the remaining pool.
+  if (claimed.length < EMAILS_PER_PARTICIPANT) {
+    const remaining = openEmails.map(e => e.id).filter(id => !claimed.includes(id));
+    for (const emailId of remaining) {
+      if (claimed.length >= EMAILS_PER_PARTICIPANT) break;
+      try {
+        await runTransaction(db, async (tx) => {
+          const ref = doc(db, "emails", emailId);
+          const snap = await tx.get(ref);
+          const data = snap.data();
+          const currentCount = data.assigned_count || 0;
+          if (currentCount >= PARTICIPANTS_PER_EMAIL) throw new Error("full");
+          const newCount = currentCount + 1;
+          tx.update(ref, {
+            assigned_count: newCount,
+            assigned_participant_ids: arrayUnion(participantId),
+            status: newCount >= PARTICIPANTS_PER_EMAIL ? "assigned_full" : "open",
+          });
+        });
+        claimed.push(emailId);
+      } catch (e) { /* keep trying others */ }
+    }
+  }
+
+  return claimed;
+}
+
+function shuffleArray(arr) {
+  for (let i = arr.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [arr[i], arr[j]] = [arr[j], arr[i]];
+  }
+}
+
+// ---------------------------------------------------------------------
+// Resume
+// ---------------------------------------------------------------------
+async function resumeParticipant(participantId) {
+  show("screen-loading");
+  try {
+    const ref = doc(db, "participants", participantId);
+    const snap = await getDoc(ref);
+    if (!snap.exists()) {
+      localStorage.removeItem(LOCAL_STORAGE_KEY);
+      show("screen-intro");
+      showIntroError("No saved progress found for that ID. Please double-check it, or start as a new participant.");
+      return;
+    }
+    const data = snap.data();
+    state.participantId = participantId;
+    state.assignedEmailIds = data.assigned_email_ids || [];
+    state.progress = data.progress || {};
+    localStorage.setItem(LOCAL_STORAGE_KEY, participantId);
+
+    // Find first incomplete email/step.
+    state.currentEmailIndex = 0;
+    for (let i = 0; i < state.assignedEmailIds.length; i++) {
+      const emailId = state.assignedEmailIds[i];
+      const p = state.progress[emailId];
+      if (!p || !p.completed) {
+        state.currentEmailIndex = i;
+        break;
+      }
+      if (i === state.assignedEmailIds.length - 1) {
+        state.currentEmailIndex = state.assignedEmailIds.length; // all done
+      }
+    }
+
+    if (state.currentEmailIndex >= state.assignedEmailIds.length) {
+      document.getElementById("done-pid").textContent = participantId;
+      show("screen-done");
+      return;
+    }
+
+    const emailId = state.assignedEmailIds[state.currentEmailIndex];
+    const p = state.progress[emailId];
+    state.currentStepIndex = p ? (p.current_step || 0) : 0;
+
+    await loadCurrentEmail();
+    show("screen-annotation");
+  } catch (err) {
+    console.error("Resume failed:", err);
+    localStorage.removeItem(LOCAL_STORAGE_KEY);
+    show("screen-intro");
+    showIntroError("Could not load your saved progress (" + (err.code || err.message) + "). "
+      + "Please resume on the same device/browser where you started, or start as a new participant.");
+  }
+}
+
+function showIntroError(msg) {
+  const el = document.getElementById("intro-error");
+  el.textContent = msg;
+  el.classList.remove("hidden");
+}
+
+// ---------------------------------------------------------------------
+// Loading / rendering the current email + sentence
+// ---------------------------------------------------------------------
+async function loadCurrentEmail() {
+  const emailId = state.assignedEmailIds[state.currentEmailIndex];
+  if (!state.emailDocs[emailId]) {
+    const snap = await getDoc(doc(db, "emails", emailId));
+    state.emailDocs[emailId] = snap.data();
+  }
+  renderCurrentSentence();
+}
+
+async function renderCurrentSentence() {
+  const emailId = state.assignedEmailIds[state.currentEmailIndex];
+  const emailData = state.emailDocs[emailId];
+  const sentence = emailData.sentences[state.currentStepIndex];
+
+  document.getElementById("pid-badge").textContent = state.participantId;
+  document.getElementById("overall-progress").textContent =
+    `Email ${state.currentEmailIndex + 1} of ${state.assignedEmailIds.length} — Sentence ${state.currentStepIndex + 1} of ${emailData.sentences.length}`;
+  document.getElementById("email-subject").textContent = emailData.subject;
+  document.getElementById("sentence-text").textContent = sentence.text;
+  document.getElementById("btn-prev").disabled = (state.currentEmailIndex === 0 && state.currentStepIndex === 0);
+
+  // Reset selection state for this sentence.
+  state.selectedEmotional = new Set();
+  state.selectedStrategy = new Set();
+  state.unclear = false;
+  renderLabelOptions();
+  refreshUnclearUI();
+
+  // Live-ish tick display.
+  const tickEl = document.getElementById("tick-line");
+  tickEl.textContent = "Loading progress...";
+  try {
+    const progSnap = await getDoc(doc(db, "sentence_progress", sentence.sentence_id));
+    const count = progSnap.exists() ? (progSnap.data().label_count || 0) : 0;
+    tickEl.textContent = `This sentence has been labeled by ${count}/${PARTICIPANTS_PER_EMAIL} participants.`;
+  } catch (e) {
+    tickEl.textContent = "";
+  }
+
+  document.getElementById("annotation-error").classList.add("hidden");
+}
+
+function renderLabelOptions() {
+  const emoContainer = document.getElementById("emotional-options");
+  const stratContainer = document.getElementById("strategy-options");
+  emoContainer.innerHTML = "";
+  stratContainer.innerHTML = "";
+
+  EMOTIONAL_LABELS.forEach(label => {
+    emoContainer.appendChild(buildLabelOptionRow(label, "emotional"));
+  });
+  STRATEGY_LABELS.forEach(label => {
+    stratContainer.appendChild(buildLabelOptionRow(label, "strategy"));
+  });
+}
+
+function buildLabelOptionRow(label, kind) {
+  const row = document.createElement("label");
+  row.className = "label-option";
+  const cb = document.createElement("input");
+  cb.type = "checkbox";
+  cb.value = label.id;
+  cb.addEventListener("change", () => onLabelToggle(label, kind, cb.checked));
+  const textWrap = document.createElement("div");
+  textWrap.innerHTML = `<div class="name">${label.name}</div><div class="def">${label.def}</div>`;
+  row.appendChild(cb);
+  row.appendChild(textWrap);
+  row.dataset.labelId = label.id;
+  row.dataset.kind = kind;
+  return row;
+}
+
+function onLabelToggle(label, kind, checked) {
+  const set = kind === "emotional" ? state.selectedEmotional : state.selectedStrategy;
+
+  // Selecting any label clears the "unclear" mark -- they are mutually
+  // exclusive, but selecting a label simply turns unclear off rather than
+  // being blocked by it.
+  if (checked && state.unclear) {
+    state.unclear = false;
+  }
+
+  if (kind === "emotional" && label.id === "neutral" && checked) {
+    // neutral is mutually exclusive with all other emotional labels
+    state.selectedEmotional = new Set(["neutral"]);
+    renderLabelOptions();
+    reapplySelections();
+    refreshUnclearUI();
+    return;
+  }
+  if (kind === "emotional" && label.id !== "neutral" && checked) {
+    state.selectedEmotional.delete("neutral");
+  }
+
+  if (checked) set.add(label.id); else set.delete(label.id);
+  reapplySelections();
+  refreshUnclearUI();
+}
+
+function reapplySelections() {
+  document.querySelectorAll("#emotional-options input").forEach(cb => {
+    cb.checked = state.selectedEmotional.has(cb.value);
+  });
+  document.querySelectorAll("#strategy-options input").forEach(cb => {
+    cb.checked = state.selectedStrategy.has(cb.value);
+  });
+}
+
+// Keeps the unclear checkbox + its highlight state in sync with state.unclear.
+// No longer disables anything -- labels and unclear just clear each other.
+function refreshUnclearUI() {
+  const unclearCb = document.getElementById("unclear-checkbox");
+  const unclearRow = document.getElementById("unclear-row");
+  unclearCb.checked = state.unclear;
+  unclearRow.classList.toggle("active", state.unclear);
+}
+
+document.getElementById("unclear-checkbox").addEventListener("change", (e) => {
+  state.unclear = e.target.checked;
+  // Marking unclear clears any selected labels (mutually exclusive).
+  if (state.unclear) {
+    state.selectedEmotional = new Set();
+    state.selectedStrategy = new Set();
+    reapplySelections();
+  }
+  refreshUnclearUI();
+});
+
+// ---------------------------------------------------------------------
+// Next / Likert popup / submit
+// ---------------------------------------------------------------------
+document.getElementById("btn-next").addEventListener("click", onNextClicked);
+document.getElementById("btn-prev").addEventListener("click", onPrevClicked);
+
+function onNextClicked() {
+  if (!state.unclear && state.selectedEmotional.size === 0 && state.selectedStrategy.size === 0) {
+    const errEl = document.getElementById("annotation-error");
+    errEl.textContent = "Please select at least one label, or mark this sentence as unclear.";
+    errEl.classList.remove("hidden");
+    return;
+  }
+  if (state.unclear) {
+    submitCurrentSentence({}, {});
+    return;
+  }
+  openLikertModal();
+}
+
+function openLikertModal() {
+  const rowsContainer = document.getElementById("likert-rows");
+  rowsContainer.innerHTML = "";
+  const ratings = {};
+
+  const allSelected = [
+    ...[...state.selectedEmotional].map(id => ({ id, kind: "emotional", label: EMOTIONAL_LABELS.find(l => l.id === id) })),
+    ...[...state.selectedStrategy].map(id => ({ id, kind: "strategy", label: STRATEGY_LABELS.find(l => l.id === id) })),
+  ];
+
+  allSelected.forEach(item => {
+    ratings[item.id] = 3; // default mid-point
+    const row = document.createElement("div");
+    row.className = "rating-row";
+    row.innerHTML = `<div class="label-name">${item.label.name}</div>`;
+    const scale = document.createElement("div");
+    scale.className = "rating-scale";
+    for (let v = 1; v <= 5; v++) {
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.textContent = v;
+      if (v === 3) btn.classList.add("selected");
+      btn.addEventListener("click", () => {
+        ratings[item.id] = v;
+        scale.querySelectorAll("button").forEach(b => b.classList.remove("selected"));
+        btn.classList.add("selected");
+      });
+      scale.appendChild(btn);
+    }
+    row.appendChild(scale);
+    rowsContainer.appendChild(row);
+  });
+
+  document.getElementById("likert-modal").classList.remove("hidden");
+
+  document.getElementById("likert-confirm").onclick = () => {
+    document.getElementById("likert-modal").classList.add("hidden");
+    const emoRatings = {};
+    const stratRatings = {};
+    state.selectedEmotional.forEach(id => emoRatings[id] = ratings[id]);
+    state.selectedStrategy.forEach(id => stratRatings[id] = ratings[id]);
+    submitCurrentSentence(emoRatings, stratRatings);
+  };
+  document.getElementById("likert-cancel").onclick = () => {
+    document.getElementById("likert-modal").classList.add("hidden");
+  };
+}
+
+async function submitCurrentSentence(emoRatings, stratRatings) {
+  const emailId = state.assignedEmailIds[state.currentEmailIndex];
+  const emailData = state.emailDocs[emailId];
+  const sentence = emailData.sentences[state.currentStepIndex];
+  const isLastSentenceOfEmail = state.currentStepIndex === emailData.sentences.length - 1;
+
+  document.getElementById("btn-next").disabled = true;
+
+  try {
+    // 1. Write the raw label submission.
+    await setDoc(doc(db, "labels", `${state.participantId}_${sentence.sentence_id}`), {
+      participant_id: state.participantId,
+      auth_uid: state.authUid,
+      email_id: emailId,
+      sentence_id: sentence.sentence_id,
+      sentence_text: sentence.text,
+      emotional_labels: [...state.selectedEmotional],
+      strategy_labels: [...state.selectedStrategy],
+      label_ratings: { emotional_labels: emoRatings, strategy_labels: stratRatings },
+      unclear: state.unclear,
+      submitted_at: serverTimestamp(),
+    });
+
+    // 2. Update the shared tick/tally counter transactionally.
+    await runTransaction(db, async (tx) => {
+      const ref = doc(db, "sentence_progress", sentence.sentence_id);
+      const snap = await tx.get(ref);
+      const data = snap.exists() ? snap.data() : { label_count: 0, labeled_by: [], label_tally: { emotional_labels: {}, strategy_labels: {} } };
+      if ((data.labeled_by || []).includes(state.participantId)) {
+        return; // already counted (e.g. resubmission after resume); don't double count
+      }
+      const tally = data.label_tally || { emotional_labels: {}, strategy_labels: {} };
+      state.selectedEmotional.forEach(id => { tally.emotional_labels[id] = (tally.emotional_labels[id] || 0) + 1; });
+      state.selectedStrategy.forEach(id => { tally.strategy_labels[id] = (tally.strategy_labels[id] || 0) + 1; });
+      tx.set(ref, {
+        email_id: emailId,
+        sentence_id: sentence.sentence_id,
+        label_count: (data.label_count || 0) + 1,
+        labeled_by: [...(data.labeled_by || []), state.participantId],
+        label_tally: tally,
+      });
+    });
+
+    // 3. Update participant progress.
+    const newProgress = { ...state.progress };
+    newProgress[emailId] = {
+      current_step: state.currentStepIndex + 1,
+      completed: isLastSentenceOfEmail,
+    };
+    state.progress = newProgress;
+    await updateDoc(doc(db, "participants", state.participantId), { progress: newProgress });
+
+    // 4. If this was the last sentence of the email, bump the email's completed_count.
+    if (isLastSentenceOfEmail) {
+      await runTransaction(db, async (tx) => {
+        const ref = doc(db, "emails", emailId);
+        const snap = await tx.get(ref);
+        const data = snap.data();
+        const newCompleted = (data.completed_count || 0) + 1;
+        tx.update(ref, {
+          completed_count: newCompleted,
+          status: newCompleted >= PARTICIPANTS_PER_EMAIL ? "completed" : data.status,
+        });
+      });
+    }
+
+    advanceToNext(isLastSentenceOfEmail);
+  } catch (err) {
+    console.error(err);
+    document.getElementById("annotation-error").textContent = "Could not save your answer, please try again: " + err.message;
+    document.getElementById("annotation-error").classList.remove("hidden");
+  } finally {
+    document.getElementById("btn-next").disabled = false;
+  }
+}
+
+function advanceToNext(wasLastSentenceOfEmail) {
+  if (wasLastSentenceOfEmail) {
+    state.currentEmailIndex += 1;
+    state.currentStepIndex = 0;
+    if (state.currentEmailIndex >= state.assignedEmailIds.length) {
+      document.getElementById("done-pid").textContent = state.participantId;
+      show("screen-done");
+      return;
+    }
+    loadCurrentEmail();
+  } else {
+    state.currentStepIndex += 1;
+    renderCurrentSentence();
+  }
+}
+
+function onPrevClicked() {
+  if (state.currentStepIndex > 0) {
+    state.currentStepIndex -= 1;
+    renderCurrentSentence();
+  } else if (state.currentEmailIndex > 0) {
+    state.currentEmailIndex -= 1;
+    const prevEmailId = state.assignedEmailIds[state.currentEmailIndex];
+    const prevEmailData = state.emailDocs[prevEmailId];
+    state.currentStepIndex = prevEmailData ? prevEmailData.sentences.length - 1 : 0;
+    loadCurrentEmail();
+  }
+}
+</script>
+</body>
+</html>
