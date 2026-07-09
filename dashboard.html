@@ -6,38 +6,49 @@
 <title>Study Dashboard (Researcher Only)</title>
 <style>
   :root {
-    --bg: #f7f7f5; --panel: #ffffff; --ink: #1f2328; --muted: #6b7280;
-    --line: #e3e3e0; --accent: #b5432c; --good: #2f6f4f; --warn: #b58900;
+    --bg: #f5f6fa; --panel: #ffffff; --text: #172033; --ink: #172033;
+    --muted: #667085; --line: #d7dce8; --border: #d7dce8; --accent: #315eea;
+    --accent-soft: #e7edff; --good: #067647; --warn: #b58900;
+    --shadow: 0 8px 28px rgba(16, 24, 40, 0.08);
   }
   * { box-sizing: border-box; }
-  body { margin: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif; background: var(--bg); color: var(--ink); }
-  .wrap { max-width: 980px; margin: 0 auto; padding: 32px 20px 80px; }
-  h1 { font-size: 1.4rem; margin: 0 0 20px; }
-  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 20px; margin-bottom: 16px; }
-  button { font-family: inherit; font-size: 0.95rem; border: none; border-radius: 7px; padding: 9px 16px; cursor: pointer; background: var(--accent); color: white; }
-  button.secondary { background: transparent; color: var(--ink); border: 1px solid var(--line); }
-  input[type=email], input[type=password] { font-family: inherit; font-size: 0.95rem; padding: 9px 12px; border: 1px solid var(--line); border-radius: 7px; width: 100%; margin-bottom: 10px; }
+  body { margin: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif; background: var(--bg); color: var(--text); }
+  header { padding: 16px 22px; background: var(--panel); border-bottom: 1px solid var(--border); position: sticky; top: 0; z-index: 20; }
+  header h1 { margin: 0; font-size: 20px; }
+  header .subtitle { margin-top: 4px; color: var(--muted); font-size: 13px; }
+  .wrap { max-width: 1080px; margin: 0 auto; padding: 16px 20px 80px; }
+  .card { background: var(--panel); border: 1px solid var(--border); border-radius: 14px; box-shadow: var(--shadow); padding: 20px; margin-bottom: 16px; }
+  h2 { margin: 0; font-size: 16px; font-weight: 800; }
+  button { font-family: inherit; font-size: 14px; border: 1px solid var(--border); border-radius: 10px; padding: 10px 14px; cursor: pointer; background: white; color: var(--text); font-weight: 650; }
+  button:hover { border-color: var(--accent); }
+  button.primary { background: var(--accent); color: white; border-color: var(--accent); }
+  input[type=email], input[type=password] { font-family: inherit; font-size: 14px; padding: 10px 12px; border: 1px solid var(--border); border-radius: 10px; width: 100%; margin-bottom: 10px; background: white; color: var(--text); }
+  label { display:block; font-size:12px; font-weight:750; color:var(--muted); margin-bottom:6px; letter-spacing:0.02em; }
   .hidden { display: none !important; }
-  .error-text { color: var(--accent); font-size: 0.88rem; margin-top: 8px; }
-  table { width: 100%; border-collapse: collapse; font-size: 0.88rem; }
-  th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--line); }
-  th { color: var(--muted); font-weight: 600; font-size: 0.78rem; text-transform: uppercase; letter-spacing: 0.03em; }
-  .status-open { color: var(--warn); }
-  .status-full { color: var(--accent); }
-  .status-completed { color: var(--good); font-weight: 600; }
-  .sentence-detail { background: #faf9f7; padding: 10px 14px; border-radius: 6px; margin: 6px 0; font-size: 0.85rem; }
+  .error-text { color: #9f1239; font-size: 13px; margin-top: 8px; }
+  table { width: 100%; border-collapse: collapse; font-size: 14px; }
+  th, td { text-align: left; padding: 10px 10px; border-bottom: 1px solid var(--border); }
+  th { color: var(--muted); font-weight: 700; font-size: 12px; text-transform: uppercase; letter-spacing: 0.03em; }
+  .status-open { color: var(--warn); font-weight: 650; }
+  .status-full { color: var(--accent); font-weight: 650; }
+  .status-completed { color: var(--good); font-weight: 700; }
+  .sentence-detail { background: #fbfcff; border: 1px solid var(--border); padding: 12px 14px; border-radius: 10px; margin: 8px 0; font-size: 13px; line-height: 1.5; }
   .tally { color: var(--muted); }
+  .note-line { color: var(--text); background: #fff8e6; border: 1px solid #f2e2b0; border-radius: 8px; padding: 6px 9px; margin-top: 6px; font-size: 12px; }
   .toggle-row { cursor: pointer; }
-  .toggle-row:hover { background: #f2f2ef; }
-  .summary-grid { display: flex; gap: 24px; margin-bottom: 8px; flex-wrap: wrap; }
-  .summary-stat { font-size: 1.6rem; font-weight: 700; }
-  .summary-label { font-size: 0.78rem; color: var(--muted); text-transform: uppercase; }
+  .toggle-row:hover { background: #f2f5ff; }
+  .summary-grid { display: flex; gap: 24px; flex-wrap: wrap; }
+  .summary-stat { font-size: 1.8rem; font-weight: 800; color: var(--accent); }
+  .summary-label { font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.02em; }
+  .pill { display:inline-block; padding: 4px 9px; border-radius: 999px; border: 1px solid var(--border); background:#fbfcff; font-size:12px; }
 </style>
 </head>
 <body>
+<header>
+  <h1>Study Dashboard</h1>
+  <div class="subtitle">Researcher-only monitoring and data export.</div>
+</header>
 <div class="wrap">
-  <h1>Study Dashboard (Researcher Only)</h1>
-
   <div id="login-card" class="card">
     <p>Sign in with the researcher account you created in Firebase Authentication.</p>
     <input id="login-email" type="email" placeholder="you@example.com">
@@ -183,12 +194,17 @@ function toggleDetail(emailId, row) {
     const sp = sentenceProgressCache[sid] || { label_count: 0, label_tally: { emotional_labels: {}, strategy_labels: {} } };
     const emoTally = Object.entries(sp.label_tally?.emotional_labels || {}).map(([k, v]) => `${k}: ${v}`).join(", ") || "none yet";
     const stratTally = Object.entries(sp.label_tally?.strategy_labels || {}).map(([k, v]) => `${k}: ${v}`).join(", ") || "none yet";
+    const notes = (sp.notes_collected || []).filter(n => n && n.trim());
+    const notesHtml = notes.length
+      ? notes.map(n => `<div class="note-line">Note: ${escapeHtml(n)}</div>`).join("")
+      : "";
     html += `
       <div class="sentence-detail">
         <div><strong>${sid}</strong> — labeled by ${sp.label_count || 0}/3</div>
         <div>${escapeHtml(sentenceText)}</div>
         <div class="tally">Emotional: ${emoTally}</div>
         <div class="tally">Strategy: ${stratTally}</div>
+        ${notesHtml}
       </div>
     `;
   });
@@ -227,6 +243,7 @@ document.getElementById("btn-export").addEventListener("click", async () => {
         emotional_ratings: emoRatings,
         strategy_ratings: stratRatings,
         unclear: r.unclear ? "TRUE" : "FALSE",
+        notes: r.notes || "",
         submitted_at: r.submitted_at ? r.submitted_at.toDate().toISOString() : "",
       });
     });
