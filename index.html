@@ -6,181 +6,426 @@
 <title>Email Annotation Study</title>
 <style>
   :root {
-    --bg: #f7f7f5;
+    --bg: #f5f6fa;
     --panel: #ffffff;
-    --ink: #1f2328;
-    --muted: #6b7280;
-    --line: #e3e3e0;
-    --accent: #b5432c;
-    --accent-soft: #f3e3df;
-    --good: #2f6f4f;
+    --text: #172033;
+    --ink: #172033;
+    --muted: #667085;
+    --line: #d7dce8;
+    --border: #d7dce8;
+    --accent: #315eea;
+    --accent-soft: #e7edff;
+    --active: #fff0a3;
+    --active-border: #d9a800;
+    --good: #067647;
     --warn: #b58900;
+    --shadow: 0 8px 28px rgba(16, 24, 40, 0.08);
   }
   * { box-sizing: border-box; }
   body {
     margin: 0;
-    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif;
     background: var(--bg);
-    color: var(--ink);
+    color: var(--text);
   }
-  .wrap { max-width: 860px; margin: 0 auto; padding: 32px 20px 80px; }
-  h1 { font-size: 1.4rem; margin: 0 0 4px; }
-  .subtitle { color: var(--muted); font-size: 0.95rem; margin-bottom: 28px; }
+
+  header {
+    padding: 16px 22px;
+    background: var(--panel);
+    border-bottom: 1px solid var(--border);
+    position: sticky;
+    top: 0;
+    z-index: 20;
+  }
+  header h1 { margin: 0; font-size: 20px; line-height: 1.25; }
+  header .subtitle { margin-top: 4px; color: var(--muted); font-size: 13px; }
+
+  .app {
+    max-width: 1500px;
+    margin: 0 auto;
+    padding: 16px;
+  }
+
+  /* Two-column annotation grid, matching v6 */
+  .annot-grid {
+    display: grid;
+    grid-template-columns: minmax(560px, 1fr) 410px;
+    gap: 16px;
+    align-items: start;
+  }
+
   .card {
     background: var(--panel);
-    border: 1px solid var(--line);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    box-shadow: var(--shadow);
+    overflow: hidden;
+  }
+
+  /* Centered card for intro/loading/done/full screens */
+  .center-card {
+    max-width: 640px;
+    margin: 40px auto;
+    padding: 28px 30px;
+  }
+  .center-card h2 { margin: 0 0 12px; font-size: 22px; }
+  .center-card p { line-height: 1.55; color: var(--text); margin: 0 0 12px; }
+
+  h1 { font-size: 20px; margin: 0; }
+  .subtitle { color: var(--muted); font-size: 13px; }
+
+  label {
+    display: block;
+    font-size: 12px;
+    font-weight: 750;
+    color: var(--muted);
+    margin-bottom: 6px;
+    letter-spacing: 0.02em;
+  }
+
+  select, textarea, button, input { font: inherit; }
+  input[type="text"], input[type="email"], input[type="password"] {
+    width: 100%;
+    padding: 10px 12px;
+    border: 1px solid var(--border);
     border-radius: 10px;
-    padding: 24px;
-    margin-bottom: 20px;
+    background: white;
+    color: var(--text);
   }
+
   button {
-    font-family: inherit;
-    font-size: 0.95rem;
-    border: none;
-    border-radius: 7px;
-    padding: 10px 18px;
+    border: 1px solid var(--border);
+    background: white;
+    color: var(--text);
+    border-radius: 10px;
+    padding: 10px 14px;
     cursor: pointer;
-    background: var(--accent);
-    color: white;
+    font-weight: 650;
+    white-space: nowrap;
   }
-  button.secondary { background: transparent; color: var(--ink); border: 1px solid var(--line); }
-  button:disabled { opacity: 0.45; cursor: not-allowed; }
-  input[type=text] {
-    font-family: inherit; font-size: 0.95rem; padding: 9px 12px;
-    border: 1px solid var(--line); border-radius: 7px; width: 100%;
-  }
+  button:hover { border-color: var(--accent); }
+  button:disabled { opacity: 0.5; cursor: not-allowed; }
+  button.primary { background: var(--accent); color: white; border-color: var(--accent); }
+  button.primary:hover { filter: brightness(1.05); }
+  button.soft { background: #f8fafc; }
+  button.secondary { background: #f8fafc; color: var(--text); }
+
   .hidden { display: none !important; }
+
   .pid-badge {
     display: inline-block; background: var(--accent-soft); color: var(--accent);
-    padding: 3px 10px; border-radius: 20px; font-size: 0.82rem; font-weight: 600;
+    padding: 5px 11px; border-radius: 999px; font-size: 12px; font-weight: 700;
+    border: 1px solid #cdd9ff;
   }
-  .progress-line { color: var(--muted); font-size: 0.85rem; margin-top: 6px; }
-  .email-subject { font-weight: 600; font-size: 1.05rem; margin-bottom: 14px; }
-  .sentence-box {
-    background: var(--accent-soft); border-left: 4px solid var(--accent);
-    padding: 16px; border-radius: 6px; font-size: 1.05rem; line-height: 1.5;
-    margin-bottom: 12px;
+
+  /* Email (left) card */
+  .email-topbar {
+    display: flex; justify-content: space-between; align-items: center; gap: 12px;
+    padding: 14px 16px; border-bottom: 1px solid var(--border);
   }
-  .tick-line { font-size: 0.82rem; color: var(--muted); margin-bottom: 20px; }
-  .label-group { margin-bottom: 18px; }
-  .label-group h3 { font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); margin: 0 0 10px; }
+  .progress-line { color: var(--muted); font-size: 13px; }
+  .meta { display: flex; gap: 8px; flex-wrap: wrap; padding: 13px 16px 0; color: var(--muted); font-size: 13px; }
+  .pill { padding: 5px 9px; border-radius: 999px; border: 1px solid var(--border); background: #fbfcff; }
+  .email-subject { padding: 12px 16px 0; font-size: 18px; font-weight: 750; }
+
+  .email-body {
+    margin: 16px;
+    padding: 18px;
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    background: #fbfcff;
+    line-height: 1.65;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    max-height: calc(100vh - 300px);
+    overflow: auto;
+    font-size: 15px;
+  }
+  .active-highlight {
+    background: var(--active);
+    border-bottom: 3px solid var(--active-border);
+    border-radius: 5px;
+    padding: 2px 1px;
+    box-decoration-break: clone;
+    -webkit-box-decoration-break: clone;
+  }
+
+  .sentence-bar {
+    display: flex; justify-content: space-between; align-items: center; gap: 10px;
+    padding: 12px 16px 16px; border-top: 1px solid var(--border); flex-wrap: wrap;
+  }
+  .step-info, .status { color: var(--muted); font-size: 13px; }
+  .buttons { display: flex; gap: 8px; flex-wrap: wrap; }
+
+  /* Side panel (right) */
+  .side-panel { position: sticky; top: 82px; align-self: start; max-height: calc(100vh - 98px); overflow: auto; }
+  .side-inner { padding: 15px; }
+
+  .progress-box {
+    padding: 10px 12px; background: #f8fafc; border: 1px solid var(--border);
+    border-radius: 10px; margin-bottom: 14px; font-size: 13px; color: var(--muted); line-height: 1.45;
+  }
+  .active-sentence {
+    padding: 12px; background: #fbfcff; border: 1px solid var(--border);
+    border-radius: 12px; margin-bottom: 14px; line-height: 1.5; font-size: 14px;
+  }
+  .tick-line { font-size: 12px; color: var(--muted); margin-bottom: 14px; line-height: 1.4; }
+
+  fieldset { border: 1px solid var(--border); border-radius: 12px; padding: 12px; margin: 0 0 14px; }
+  legend { padding: 0 6px; font-weight: 800; font-size: 13px; }
+
+  .checkbox-list { display: grid; gap: 8px; margin-top: 4px; }
   .label-option {
-    display: flex; align-items: flex-start; gap: 8px;
-    padding: 8px 10px; border-radius: 6px; margin-bottom: 4px; cursor: pointer;
+    display: grid; grid-template-columns: 20px 1fr; gap: 8px; align-items: start;
+    font-size: 14px; cursor: pointer; padding: 2px; border-radius: 8px;
   }
-  .label-option:hover { background: #f2f2ef; }
-  .label-option input { margin-top: 3px; }
-  .label-option .name { font-weight: 500; }
-  .label-option .def { color: var(--muted); font-size: 0.82rem; }
+  .label-option:hover { background: #f6f8ff; }
+  .label-option input { margin-top: 2px; }
+  .label-option .name { font-weight: 550; }
+  .label-option .def { color: var(--muted); font-size: 12px; line-height: 1.35; margin-top: 2px; }
+
   .unclear-row {
-    display: flex; align-items: center; gap: 8px; padding: 12px;
-    border: 1px solid var(--line); border-radius: 6px; margin-top: 10px;
-    cursor: pointer; transition: background 0.12s, border-color 0.12s;
+    display: grid; grid-template-columns: 20px 1fr; gap: 8px; align-items: start;
+    padding: 10px; border: 1px solid var(--border); border-radius: 10px;
+    cursor: pointer; transition: background 0.12s, border-color 0.12s; font-size: 14px;
   }
-  .unclear-row:hover { background: #f2f2ef; }
-  .unclear-row label { cursor: pointer; flex: 1; }
-  .unclear-row input { cursor: pointer; }
-  .unclear-row.active {
-    background: var(--accent-soft); border-color: var(--accent);
-    color: var(--accent); font-weight: 600;
+  .unclear-row:hover { background: #f6f8ff; }
+  .unclear-row input { margin-top: 2px; cursor: pointer; }
+  .unclear-row.active { background: var(--active); border-color: var(--active-border); }
+  .unclear-row .name { font-weight: 600; }
+  .unclear-row .def { color: var(--muted); font-size: 12px; line-height: 1.35; margin-top: 2px; }
+
+  .actions { display: flex; justify-content: space-between; margin-top: 4px; }
+
+  .footer-note { font-size: 12px; color: var(--muted); line-height: 1.4; margin-top: 8px; }
+
+  /* Instructions card (v6) */
+  .instructions-card { margin-bottom: 16px; }
+  .instructions-inner { padding: 16px 18px; }
+  .instructions-title { font-size: 16px; font-weight: 800; margin-bottom: 8px; }
+  .instructions-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-top: 10px; }
+  .instruction-box {
+    border: 1px solid var(--border); border-radius: 12px; background: #fbfcff;
+    padding: 12px; font-size: 13px; line-height: 1.45;
   }
-  .actions { display: flex; justify-content: space-between; margin-top: 20px; }
+  .instruction-box strong { display: block; margin-bottom: 5px; }
+
+  /* Notes field */
+  textarea {
+    width: 100%; min-height: 64px; padding: 10px 12px;
+    border: 1px solid var(--border); border-radius: 10px; resize: vertical;
+    font: inherit; color: var(--text);
+  }
+
+  /* Modal (Likert) — matches v6 */
   .modal-backdrop {
-    position: fixed; inset: 0; background: rgba(0,0,0,0.4);
-    display: flex; align-items: center; justify-content: center; padding: 20px; z-index: 50;
+    position: fixed; inset: 0; background: rgba(15, 23, 42, 0.48);
+    z-index: 100; display: flex; justify-content: center; align-items: center; padding: 24px;
   }
-  .modal { background: white; border-radius: 10px; padding: 24px; max-width: 480px; width: 100%; max-height: 85vh; overflow-y: auto; }
-  .rating-row { margin-bottom: 16px; }
-  .rating-row .label-name { font-weight: 600; margin-bottom: 6px; }
-  .rating-scale { display: flex; gap: 6px; }
+  .modal-card {
+    width: min(680px, 96vw); max-height: 88vh; overflow: auto;
+    background: var(--panel); border: 1px solid var(--border); border-radius: 16px;
+    box-shadow: 0 22px 60px rgba(15, 23, 42, 0.28);
+  }
+  .modal-header {
+    padding: 16px 18px; border-bottom: 1px solid var(--border);
+    display: flex; justify-content: space-between; gap: 12px; align-items: start;
+  }
+  .modal-title { font-size: 18px; font-weight: 800; margin: 0 0 4px; }
+  .modal-subtitle { color: var(--muted); font-size: 13px; line-height: 1.4; }
+  .modal-body { padding: 16px 18px; }
+  .modal-sentence {
+    border: 1px solid var(--border); background: #fbfcff; border-radius: 12px;
+    padding: 12px; line-height: 1.5; font-size: 14px; margin-bottom: 14px;
+  }
+  .modal-footer {
+    padding: 14px 18px; border-top: 1px solid var(--border);
+    display: flex; justify-content: flex-end; gap: 10px; background: #fbfcff;
+    position: sticky; bottom: 0;
+  }
+
+  .rating-row { border: 1px solid var(--border); border-radius: 10px; background: #fbfcff; padding: 10px; margin-bottom: 10px; }
+  .rating-row .label-name { font-weight: 650; margin-bottom: 8px; font-size: 13px; }
+  .rating-scale { display: grid; grid-template-columns: repeat(5, 1fr); gap: 6px; }
   .rating-scale button {
-    flex: 1; background: #f2f2ef; color: var(--ink); border: 1px solid var(--line);
-    padding: 8px 0; font-weight: 600;
+    background: white; color: var(--text); border: 1px solid var(--border);
+    padding: 8px 0; font-weight: 650; border-radius: 9px;
   }
   .rating-scale button.selected { background: var(--accent); color: white; border-color: var(--accent); }
-  .rating-hint { color: var(--muted); font-size: 0.78rem; margin-top: 4px; }
-  .error-text { color: var(--accent); font-size: 0.88rem; margin-top: 10px; }
+  .rating-hint { color: var(--muted); font-size: 12px; margin-top: 4px; }
+
+  .error-text { color: #9f1239; font-size: 13px; margin-top: 10px; line-height: 1.4; }
   .status-good { color: var(--good); }
-  .spinner { display: inline-block; width: 14px; height: 14px; border: 2px solid var(--line); border-top-color: var(--accent); border-radius: 50%; animation: spin 0.7s linear infinite; }
+  .spinner {
+    display: inline-block; width: 14px; height: 14px; border: 2px solid var(--border);
+    border-top-color: var(--accent); border-radius: 50%; animation: spin 0.7s linear infinite;
+    vertical-align: middle; margin-right: 6px;
+  }
   @keyframes spin { to { transform: rotate(360deg); } }
+
+  @media (max-width: 1100px) {
+    .annot-grid { grid-template-columns: 1fr; }
+    .side-panel { position: static; max-height: none; }
+    .instructions-grid { grid-template-columns: 1fr; }
+  }
 </style>
 </head>
 <body>
-<div class="wrap">
+<header>
   <h1>Email Annotation Study</h1>
-  <div class="subtitle">Label the emotional tone and persuasion strategy of each sentence.</div>
+  <div class="subtitle">Label the emotional tone and persuasion strategy of each highlighted sentence.</div>
+</header>
+
+<div class="app">
 
   <!-- LOADING -->
-  <div id="screen-loading" class="card">
+  <div id="screen-loading" class="card center-card">
     <span class="spinner"></span> Connecting...
   </div>
 
   <!-- STUDY FULL -->
-  <div id="screen-full" class="card hidden">
+  <div id="screen-full" class="card center-card hidden">
     <h2>Thank you for your interest!</h2>
     <p>This study has reached its full 15 participants. No further responses are needed. Thank you for checking.</p>
   </div>
 
-  <!-- INTRO -->
-  <div id="screen-intro" class="card hidden">
+  <!-- INTRO / "LOGIN" -->
+  <div id="screen-intro" class="card center-card hidden">
     <h2>Before you begin</h2>
     <p>You'll read 4 short emails and label each sentence with the emotions and persuasion strategies you think it uses. It takes about 15-20 minutes. Your progress is saved automatically, so you can close this tab and come back later.</p>
-    <p style="margin-top:16px;">Already started on another device? Enter your participant ID below to resume instead of starting fresh.</p>
-    <input id="resume-id-input" type="text" placeholder="e.g. P07" style="margin-bottom:10px;">
-    <div style="display:flex; gap:10px;">
-      <button id="btn-resume">Resume with this ID</button>
-      <button id="btn-start" class="secondary">Start as a new participant</button>
+    <p style="margin-top:4px;">Already started on another device? Enter your participant ID below to resume instead of starting fresh.</p>
+    <div style="margin-top:16px; margin-bottom:12px;">
+      <label for="resume-id-input">Participant ID</label>
+      <input id="resume-id-input" type="text" placeholder="e.g. P07" autocomplete="off">
+    </div>
+    <div style="display:flex; gap:10px; flex-wrap:wrap;">
+      <button class="soft" id="btn-resume">Resume with this ID</button>
+      <button class="primary" id="btn-start">Start as a new participant</button>
     </div>
     <div id="intro-error" class="error-text hidden"></div>
   </div>
 
   <!-- ANNOTATION -->
-  <div id="screen-annotation" class="card hidden">
-    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:14px;">
-      <span class="pid-badge" id="pid-badge"></span>
-      <span class="progress-line" id="overall-progress"></span>
-    </div>
-    <div class="email-subject" id="email-subject"></div>
-    <div class="sentence-box" id="sentence-text"></div>
-    <div class="tick-line" id="tick-line"></div>
+  <div id="screen-annotation" class="hidden">
 
-    <div class="label-group">
-      <h3>Emotional labels</h3>
-      <div id="emotional-options"></div>
-    </div>
-    <div class="label-group">
-      <h3>Strategy labels</h3>
-      <div id="strategy-options"></div>
-    </div>
+    <!-- Instructions (v6) -->
+    <section class="card instructions-card">
+      <div class="instructions-inner">
+        <div class="instructions-title">Instructions for this experiment</div>
+        <div class="subtitle">
+          For each highlighted sentence, identify what emotion the sentence may try to create and what strategy it uses. The rating popup appears only after you press Next.
+        </div>
+        <div class="instructions-grid">
+          <div class="instruction-box">
+            <strong>1. Label the sentence, not the whole email</strong>
+            Use only the highlighted sentence. Do not use later sentences to decide the labels for the current one.
+          </div>
+          <div class="instruction-box">
+            <strong>2. Choose both emotion and strategy when present</strong>
+            Emotional labels describe the reaction being targeted. Strategy labels describe what the sentence is doing.
+          </div>
+          <div class="instruction-box">
+            <strong>3. Press Next to rate selected labels</strong>
+            After choosing labels, press Next. A popup will ask you to rate each selected label from 1 to 5.
+          </div>
+          <div class="instruction-box">
+            <strong>4. Use neutral carefully</strong>
+            Neutral means no clear emotional trigger. It cannot be combined with other emotional labels, but strategy labels can still be selected.
+          </div>
+          <div class="instruction-box">
+            <strong>5. Use unclear only when needed</strong>
+            Select unclear/hard to label only when the sentence is difficult to understand or cannot be labeled confidently.
+          </div>
+        </div>
+      </div>
+    </section>
 
-    <div class="unclear-row" id="unclear-row">
-      <input type="checkbox" id="unclear-checkbox">
-      <label for="unclear-checkbox">This sentence is unclear / hard to label</label>
-    </div>
+    <!-- Two-column annotation grid (v6 layout) -->
+    <div class="annot-grid">
 
-    <div class="actions">
-      <button id="btn-prev" class="secondary">Back</button>
-      <button id="btn-next">Next</button>
-    </div>
-    <div id="annotation-error" class="error-text hidden"></div>
-  </div>
+    <!-- LEFT: email body with active sentence highlighted -->
+    <section class="card">
+      <div class="email-topbar">
+        <span class="pid-badge" id="pid-badge"></span>
+        <span class="progress-line" id="overall-progress"></span>
+      </div>
+      <div class="email-subject" id="email-subject"></div>
+      <div class="email-body" id="email-body"></div>
+      <div class="sentence-bar">
+        <div>
+          <div class="step-info" id="step-info"></div>
+          <div class="status" id="tick-line"></div>
+        </div>
+        <div class="buttons">
+          <button id="btn-prev">&larr; Back</button>
+          <button class="primary" id="btn-next">Next &rarr;</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- RIGHT: sticky label panel -->
+    <aside class="card side-panel">
+      <div class="side-inner">
+        <label>Current highlighted sentence</label>
+        <div class="active-sentence" id="sentence-text"></div>
+
+        <fieldset>
+          <legend>Emotional labels</legend>
+          <div class="checkbox-list" id="emotional-options"></div>
+        </fieldset>
+
+        <fieldset>
+          <legend>Strategy labels</legend>
+          <div class="checkbox-list" id="strategy-options"></div>
+        </fieldset>
+
+        <fieldset>
+          <legend>Unclear / notes</legend>
+          <label class="unclear-row" id="unclear-row">
+            <input type="checkbox" id="unclear-checkbox">
+            <div>
+              <div class="name">Mark as unclear / hard to label</div>
+              <div class="def">Use only when the sentence is difficult to understand or cannot be labeled confidently. Selecting this clears any chosen labels.</div>
+            </div>
+          </label>
+          <div style="margin-top: 10px;">
+            <label for="notes-box">Notes (optional)</label>
+            <textarea id="notes-box" placeholder="Optional short note about this sentence..."></textarea>
+          </div>
+        </fieldset>
+
+        <div class="footer-note">
+          After choosing labels, press <strong>Next</strong> to rate how strongly each fits.
+          Progress is saved in this browser &mdash; note your participant ID if you might switch devices.
+        </div>
+        <div id="annotation-error" class="error-text hidden"></div>
+      </div>
+    </aside>
+    </div><!-- /.annot-grid -->
+  </div><!-- /#screen-annotation -->
 
   <!-- DONE -->
-  <div id="screen-done" class="card hidden">
-    <h2 class="status-good">All done -- thank you!</h2>
+  <div id="screen-done" class="card center-card hidden">
+    <h2 class="status-good">All done &mdash; thank you!</h2>
     <p>You've completed all 4 assigned emails. Your participant ID was <strong id="done-pid"></strong>.</p>
   </div>
 </div>
 
-<!-- Likert modal -->
+<!-- Likert modal (v6-styled) -->
 <div id="likert-modal" class="modal-backdrop hidden">
-  <div class="modal">
-    <h3>Rate how strongly each label fits</h3>
-    <p class="rating-hint">1 = weak or uncertain fit, 5 = very strong and clear fit</p>
-    <div id="likert-rows"></div>
-    <div style="display:flex; justify-content:flex-end; gap:10px; margin-top:10px;">
-      <button id="likert-cancel" class="secondary">Back</button>
-      <button id="likert-confirm">Confirm and continue</button>
+  <div class="modal-card" role="dialog" aria-modal="true">
+    <div class="modal-header">
+      <div>
+        <div class="modal-title">Rate selected labels</div>
+        <div class="modal-subtitle">Rate how strongly each selected label fits the highlighted sentence.<br>1 = weak or uncertain fit, 5 = very strong and clear fit.</div>
+      </div>
+    </div>
+    <div class="modal-body">
+      <div id="likert-rows"></div>
+    </div>
+    <div class="modal-footer">
+      <button class="soft" id="likert-cancel">Back</button>
+      <button class="primary" id="likert-confirm">Confirm and continue</button>
     </div>
   </div>
 </div>
@@ -501,15 +746,24 @@ async function renderCurrentSentence() {
 
   document.getElementById("pid-badge").textContent = state.participantId;
   document.getElementById("overall-progress").textContent =
-    `Email ${state.currentEmailIndex + 1} of ${state.assignedEmailIds.length} — Sentence ${state.currentStepIndex + 1} of ${emailData.sentences.length}`;
+    `Email ${state.currentEmailIndex + 1} of ${state.assignedEmailIds.length}`;
   document.getElementById("email-subject").textContent = emailData.subject;
+  document.getElementById("step-info").textContent =
+    `Sentence ${state.currentStepIndex + 1} of ${emailData.sentences.length}`;
+
+  // Render the WHOLE email body with the active sentence highlighted (v6 look).
+  renderEmailBody(emailData, state.currentStepIndex);
+
+  // The sticky side panel shows just the active sentence.
   document.getElementById("sentence-text").textContent = sentence.text;
+
   document.getElementById("btn-prev").disabled = (state.currentEmailIndex === 0 && state.currentStepIndex === 0);
 
   // Reset selection state for this sentence.
   state.selectedEmotional = new Set();
   state.selectedStrategy = new Set();
   state.unclear = false;
+  document.getElementById("notes-box").value = "";
   renderLabelOptions();
   refreshUnclearUI();
 
@@ -525,6 +779,28 @@ async function renderCurrentSentence() {
   }
 
   document.getElementById("annotation-error").classList.add("hidden");
+}
+
+// Paints the full email body, wrapping the active sentence in a highlight
+// span. Sentences are separated the same way the seed script joined them
+// (double newline), so the body reads like the original email.
+function renderEmailBody(emailData, activeIndex) {
+  const bodyEl = document.getElementById("email-body");
+  bodyEl.innerHTML = "";
+  emailData.sentences.forEach((s, idx) => {
+    if (idx > 0) bodyEl.appendChild(document.createTextNode("\n\n"));
+    const span = document.createElement("span");
+    span.textContent = s.text;
+    if (idx === activeIndex) {
+      span.className = "active-highlight";
+    }
+    bodyEl.appendChild(span);
+  });
+  // Scroll the active sentence into view within the email-body box.
+  const active = bodyEl.querySelector(".active-highlight");
+  if (active && active.scrollIntoView) {
+    active.scrollIntoView({ block: "nearest", behavior: "smooth" });
+  }
 }
 
 function renderLabelOptions() {
@@ -701,6 +977,7 @@ async function submitCurrentSentence(emoRatings, stratRatings) {
       strategy_labels: [...state.selectedStrategy],
       label_ratings: { emotional_labels: emoRatings, strategy_labels: stratRatings },
       unclear: state.unclear,
+      notes: (document.getElementById("notes-box").value || "").trim(),
       submitted_at: serverTimestamp(),
     });
 
@@ -715,12 +992,16 @@ async function submitCurrentSentence(emoRatings, stratRatings) {
       const tally = data.label_tally || { emotional_labels: {}, strategy_labels: {} };
       state.selectedEmotional.forEach(id => { tally.emotional_labels[id] = (tally.emotional_labels[id] || 0) + 1; });
       state.selectedStrategy.forEach(id => { tally.strategy_labels[id] = (tally.strategy_labels[id] || 0) + 1; });
+      const noteText = (document.getElementById("notes-box").value || "").trim();
+      const notesCollected = data.notes_collected || [];
+      if (noteText) notesCollected.push(noteText);
       tx.set(ref, {
         email_id: emailId,
         sentence_id: sentence.sentence_id,
         label_count: (data.label_count || 0) + 1,
         labeled_by: [...(data.labeled_by || []), state.participantId],
         label_tally: tally,
+        notes_collected: notesCollected,
       });
     });
 
