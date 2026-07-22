@@ -336,6 +336,10 @@
             <strong>5. Use unclear only when needed</strong>
             Select unclear/hard to label only when the sentence is difficult to understand or cannot be labeled confidently.
           </div>
+          <div class="instruction-box">
+            <strong>6. Do not judge whether the email is real or fake</strong>
+            The task is to label emotional triggers and strategies, not to decide whether the email is genuine or suspicious.
+          </div>
         </div>
       </div>
     </section>
@@ -395,7 +399,7 @@
         </fieldset>
 
         <div class="footer-note">
-          After choosing labels, press <strong>Next</strong> to rate how strongly each fits.
+          After choosing labels, press <strong>Next</strong> to rate how clearly the sentence shows each one.
           Progress is saved in this browser &mdash; note your participant ID if you might switch devices.
         </div>
         <div id="annotation-error" class="error-text hidden"></div>
@@ -416,8 +420,8 @@
   <div class="modal-card" role="dialog" aria-modal="true">
     <div class="modal-header">
       <div>
-        <div class="modal-title">Rate selected labels</div>
-        <div class="modal-subtitle">Rate how strongly each selected label fits the highlighted sentence.<br>1 = weak or uncertain fit, 5 = very strong and clear fit.</div>
+        <div class="modal-title">Rate how well each label fits</div>
+        <div class="modal-subtitle">This is not about how strongly you personally felt the emotion, or how confident you are. Rate how clearly the sentence itself shows each label.<br>1 = barely fits, the label is a weak match for this sentence. 5 = fits clearly, the sentence is a strong example of this label.</div>
       </div>
     </div>
     <div class="modal-body">
@@ -485,7 +489,6 @@ const STRATEGY_LABELS = [
   { id: "official_pressure", name: "Official Pressure", def: "Uses official or institutional-sounding language." },
   { id: "specific_personalization", name: "Specific Personalization", def: "Uses a specific personal detail (name, order #, account #)." },
   { id: "reward_or_opportunity_offer", name: "Reward / Opportunity Offer", def: "Offers a reward, prize, or opportunity." },
-  { id: "information_lure", name: "Information Lure", def: "Dangles information (not a reward) to get engagement." },
   { id: "obligation_pressure", name: "Obligation Pressure", def: "Creates a sense of duty or owed response." },
 ];
 
