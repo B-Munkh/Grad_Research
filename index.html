@@ -232,7 +232,8 @@
     display: flex; justify-content: space-between; gap: 12px; align-items: start;
   }
   .modal-title { font-size: 18px; font-weight: 800; margin: 0 0 4px; }
-  .modal-subtitle { color: var(--muted); font-size: 13px; line-height: 1.4; }
+  .modal-subtitle { color: var(--muted); font-size: 13px; line-height: 1.5; }
+  .modal-subtitle em { font-style: normal; font-weight: 700; color: var(--text); }
   .modal-body { padding: 16px 18px; }
   .modal-sentence {
     border: 1px solid var(--border); background: #fbfcff; border-radius: 12px;
@@ -252,6 +253,8 @@
     padding: 8px 0; font-weight: 650; border-radius: 9px;
   }
   .rating-scale button.selected { background: var(--accent); color: white; border-color: var(--accent); }
+  .rating-anchors { display: flex; justify-content: space-between; margin-bottom: 6px; padding: 0 2px; }
+  .rating-anchors span { font-size: 11px; color: var(--muted); font-weight: 600; text-transform: uppercase; letter-spacing: 0.03em; }
   .rating-hint { color: var(--muted); font-size: 12px; margin-top: 4px; }
 
   .error-text { color: #9f1239; font-size: 13px; margin-top: 10px; line-height: 1.4; }
@@ -420,8 +423,8 @@
   <div class="modal-card" role="dialog" aria-modal="true">
     <div class="modal-header">
       <div>
-        <div class="modal-title">Rate how well each label fits</div>
-        <div class="modal-subtitle">This is not about how strongly you personally felt the emotion, or how confident you are. Rate how clearly the sentence itself shows each label.<br>1 = barely fits, the label is a weak match for this sentence. 5 = fits clearly, the sentence is a strong example of this label.</div>
+        <div class="modal-title">How well does each label fit?</div>
+        <div class="modal-subtitle">For each label you chose, rate how clearly <em>this sentence</em> shows it &mdash; a weak fit means the label barely applies, a strong fit means the sentence is a clear example. This is about the sentence, not how strongly you felt the emotion or how confident you are.</div>
       </div>
     </div>
     <div class="modal-body">
@@ -927,6 +930,10 @@ function openLikertModal() {
     const row = document.createElement("div");
     row.className = "rating-row";
     row.innerHTML = `<div class="label-name">${item.label.name}</div>`;
+    const anchors = document.createElement("div");
+    anchors.className = "rating-anchors";
+    anchors.innerHTML = `<span>Weak fit</span><span>Strong fit</span>`;
+    row.appendChild(anchors);
     const scale = document.createElement("div");
     scale.className = "rating-scale";
     for (let v = 1; v <= 5; v++) {
