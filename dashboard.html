@@ -41,6 +41,38 @@
   .summary-stat { font-size: 1.8rem; font-weight: 800; color: var(--accent); }
   .summary-label { font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.02em; }
   .pill { display:inline-block; padding: 4px 9px; border-radius: 999px; border: 1px solid var(--border); background:#fbfcff; font-size:12px; }
+
+  /* --- Participants panel ------------------------------------------- */
+  /* Email chips: one per assigned email, colour-coded by how far the
+     participant got. The grey "untouched" chips are exactly what
+     release_participant.py frees in its default mode. */
+  .echip {
+    display: inline-block; padding: 2px 7px; border-radius: 6px; font-size: 11px;
+    font-weight: 650; margin: 2px 3px 2px 0; border: 1px solid var(--border);
+    background: #fbfcff; color: var(--muted); letter-spacing: 0.01em;
+  }
+  .echip.done    { background: #e8f6ef; border-color: #a9dcc4; color: var(--good); }
+  .echip.started { background: #fff6df; border-color: #f0d79a; color: #8a6a00; }
+  .echip.untouched { background: #f4f5f8; border-color: var(--border); color: var(--muted); }
+
+  .pstatus { font-weight: 700; font-size: 12px; white-space: nowrap; }
+  .pstatus.active   { color: var(--good); }
+  .pstatus.idle     { color: var(--muted); }
+  .pstatus.stalled  { color: #b42318; }
+  .pstatus.complete { color: var(--accent); }
+  .pstatus.nostart  { color: var(--warn); }
+
+  tr.row-stalled { background: #fff6f5; }
+  tr.row-stalled:hover { background: #ffeceb; }
+
+  .release-cmd {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 11px; background: #f4f5f8; border: 1px solid var(--border);
+    border-radius: 6px; padding: 2px 6px; color: var(--text); cursor: pointer;
+  }
+  .release-cmd:hover { border-color: var(--accent); }
+  .hint { font-size: 12px; color: var(--muted); line-height: 1.5; margin: 0 0 12px; }
+  .legend { font-size: 11px; color: var(--muted); margin-top: 12px; }
 </style>
 </head>
 <body>
@@ -59,6 +91,33 @@
 
   <div id="dashboard" class="card hidden">
     <div class="summary-grid" id="summary-grid"></div>
+  </div>
+
+  <div id="participants-card" class="card hidden">
+    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
+      <h2 style="margin:0; font-size:1.05rem;">Participants <span id="stalled-badge"></span></h2>
+      <label style="display:flex; align-items:center; gap:6px; margin:0; text-transform:none; letter-spacing:0; font-weight:600;">
+        <input type="checkbox" id="only-stalled" style="margin:0;">
+        Show only stalled
+      </label>
+    </div>
+    <p class="hint">
+      Who is holding which emails. Grey chips are emails a participant was assigned
+      but never opened &mdash; those are the slots that stay stuck if they abandon.
+      Click a row to see their per-email position.
+    </p>
+    <table>
+      <thead><tr>
+        <th>Participant</th><th>Emails assigned</th><th>Done</th>
+        <th>Labels</th><th>Last activity</th><th>Status</th><th>Release</th>
+      </tr></thead>
+      <tbody id="participants-tbody"></tbody>
+    </table>
+    <div class="legend">
+      <span class="echip done">done</span> finished all sentences &nbsp;
+      <span class="echip started">in progress</span> some sentences labeled &nbsp;
+      <span class="echip untouched">never opened</span> holding the slot
+    </div>
   </div>
 
   <div id="emails-card" class="card hidden">
@@ -99,6 +158,13 @@ const db = getFirestore(app);
 
 let emailsCache = {};
 let sentenceProgressCache = {};
+let participantsCache = {};
+let labelsCache = [];        // raw label docs, researcher-readable per rules
+
+// A participant with no submission in this long, who has not finished all
+// their emails, is treated as stalled and worth releasing.
+const STALLED_AFTER_MS = 24 * 60 * 60 * 1000;
+const ACTIVE_WITHIN_MS = 30 * 60 * 1000;
 
 document.getElementById("btn-login").addEventListener("click", async () => {
   const email = document.getElementById("login-email").value.trim();
@@ -116,6 +182,7 @@ onAuthStateChanged(auth, (user) => {
   if (user) {
     document.getElementById("login-card").classList.add("hidden");
     document.getElementById("dashboard").classList.remove("hidden");
+    document.getElementById("participants-card").classList.remove("hidden");
     document.getElementById("emails-card").classList.remove("hidden");
     startLiveListeners();
   }
@@ -132,7 +199,22 @@ function startLiveListeners() {
     snap.forEach(d => { sentenceProgressCache[d.id] = d.data(); });
     renderEmails();
   });
+  onSnapshot(collection(db, "participants"), (snap) => {
+    participantsCache = {};
+    snap.forEach(d => { participantsCache[d.id] = d.data(); });
+    renderParticipants();
+  });
+  // Raw labels drive the "last activity" clock and tell us which assigned
+  // emails a participant has actually opened. Only the researcher account can
+  // read this collection, per firestore.rules.
+  onSnapshot(collection(db, "labels"), (snap) => {
+    labelsCache = [];
+    snap.forEach(d => { labelsCache.push(d.data()); });
+    renderParticipants();
+  });
 }
+
+document.getElementById("only-stalled").addEventListener("change", renderParticipants);
 
 function renderEmails() {
   const emailIds = Object.keys(emailsCache).sort();
@@ -171,6 +253,195 @@ function renderEmails() {
     <div><div class="summary-stat">${totalAssignedFull}</div><div class="summary-label">Fully assigned</div></div>
     <div><div class="summary-stat">${totalLabelsSubmitted}</div><div class="summary-label">Sentence labels submitted</div></div>
   `;
+}
+
+// ---------------------------------------------------------------------
+// Participants panel
+// ---------------------------------------------------------------------
+// Answers the question "who do I need to release?" without guesswork:
+// shows each participant's assigned emails, how far they got, when they were
+// last seen, and the exact command to free the slots they are sitting on.
+// ---------------------------------------------------------------------
+
+function relativeTime(date) {
+  if (!date) return "never";
+  const ms = Date.now() - date.getTime();
+  const mins = Math.floor(ms / 60000);
+  if (mins < 1) return "just now";
+  if (mins < 60) return mins + " min ago";
+  const hrs = Math.floor(mins / 60);
+  if (hrs < 24) return hrs + (hrs === 1 ? " hour ago" : " hours ago");
+  const days = Math.floor(hrs / 24);
+  return days + (days === 1 ? " day ago" : " days ago");
+}
+
+function summariseParticipant(pid) {
+  const p = participantsCache[pid] || {};
+  const assigned = p.assigned_email_ids || [];
+  const progress = p.progress || {};
+
+  const mine = labelsCache.filter(l => l.participant_id === pid);
+  const touched = new Set(mine.map(l => l.email_id).filter(Boolean));
+
+  let last = null;
+  mine.forEach(l => {
+    const t = l.submitted_at && l.submitted_at.toDate ? l.submitted_at.toDate() : null;
+    if (t && (!last || t > last)) last = t;
+  });
+
+  const emails = assigned.map(id => {
+    const entry = progress[id] || {};
+    let cls = "untouched";
+    if (entry.completed) cls = "done";
+    else if (touched.has(id)) cls = "started";
+    return { id, cls, step: entry.current_step || 0 };
+  });
+
+  const doneCount = emails.filter(e => e.cls === "done").length;
+  const untouched = emails.filter(e => e.cls === "untouched").map(e => e.id);
+  const complete = assigned.length > 0 && doneCount === assigned.length;
+
+  const age = last ? (Date.now() - last.getTime()) : Infinity;
+  let status, statusClass;
+  if (complete) {
+    status = "Complete"; statusClass = "complete";
+  } else if (mine.length === 0) {
+    status = "Never started"; statusClass = "nostart";
+  } else if (age < ACTIVE_WITHIN_MS) {
+    status = "Active"; statusClass = "active";
+  } else if (age < STALLED_AFTER_MS) {
+    status = "Idle"; statusClass = "idle";
+  } else {
+    status = "Stalled"; statusClass = "stalled";
+  }
+
+  // Worth releasing only if they are holding slots they never opened.
+  const releasable = !complete && untouched.length > 0;
+
+  return { pid, assigned, emails, doneCount, untouched, labelCount: mine.length,
+           last, status, statusClass, complete, releasable };
+}
+
+function renderParticipants() {
+  const tbody = document.getElementById("participants-tbody");
+  if (!tbody) return;
+  const onlyStalled = document.getElementById("only-stalled").checked;
+
+  const pids = Object.keys(participantsCache).sort();
+  tbody.innerHTML = "";
+
+  // Header badge: how many slots are recoverable right now.
+  const badge = document.getElementById("stalled-badge");
+  const summaries = pids.map(summariseParticipant);
+  const stuckSlots = summaries
+    .filter(s => s.status === "Stalled" || s.status === "Never started")
+    .reduce((n, s) => n + s.untouched.length, 0);
+  badge.innerHTML = stuckSlots > 0
+    ? `<span class="pill" style="border-color:#f0a9a3; background:#fff6f5; color:#b42318; margin-left:8px;">${stuckSlots} slot${stuckSlots === 1 ? "" : "s"} recoverable</span>`
+    : "";
+
+  if (pids.length === 0) {
+    tbody.innerHTML = `<tr><td colspan="7" style="color:var(--muted);">No participants yet.</td></tr>`;
+    return;
+  }
+
+  let shown = 0;
+  pids.forEach(pid => {
+    const s = summariseParticipant(pid);
+    if (onlyStalled && !(s.status === "Stalled" || s.status === "Never started")) return;
+    shown += 1;
+
+    const row = document.createElement("tr");
+    row.className = "toggle-row" + (s.status === "Stalled" || s.status === "Never started" ? " row-stalled" : "");
+
+    const chips = s.emails
+      .map(e => `<span class="echip ${e.cls}" title="${e.cls}">${escapeHtml(e.id)}</span>`)
+      .join("");
+
+    const releaseCell = s.releasable
+      ? `<button class="release-cmd" data-pid="${escapeHtml(pid)}" title="Copy the release command">-p ${escapeHtml(pid)}</button>`
+      : `<span style="color:var(--muted); font-size:12px;">&mdash;</span>`;
+
+    row.innerHTML = `
+      <td><strong>${escapeHtml(pid)}</strong></td>
+      <td>${chips || '<span style="color:var(--muted);">none</span>'}</td>
+      <td>${s.doneCount}/${s.assigned.length}</td>
+      <td>${s.labelCount}</td>
+      <td>${relativeTime(s.last)}</td>
+      <td class="pstatus ${s.statusClass}">${s.status}</td>
+      <td>${releaseCell}</td>
+    `;
+    row.addEventListener("click", (ev) => {
+      if (ev.target.classList.contains("release-cmd")) return; // let the button handle it
+      toggleParticipantDetail(pid, row);
+    });
+    tbody.appendChild(row);
+  });
+
+  if (shown === 0) {
+    tbody.innerHTML = `<tr><td colspan="7" style="color:var(--muted);">No stalled participants. Nothing needs releasing.</td></tr>`;
+  }
+
+  tbody.querySelectorAll(".release-cmd").forEach(btn => {
+    btn.addEventListener("click", (ev) => {
+      ev.stopPropagation();
+      const cmd = `python3 release_participant.py --service-account KEY.json -p ${btn.dataset.pid} --dry-run`;
+      navigator.clipboard.writeText(cmd).then(() => {
+        const old = btn.textContent;
+        btn.textContent = "copied";
+        setTimeout(() => { btn.textContent = old; }, 1200);
+      }).catch(() => {
+        window.prompt("Copy this command:", cmd);
+      });
+    });
+  });
+}
+
+function toggleParticipantDetail(pid, row) {
+  const existing = row.nextElementSibling;
+  if (existing && existing.classList.contains("pdetail-row")) {
+    existing.remove();
+    return;
+  }
+  document.querySelectorAll(".pdetail-row").forEach(el => el.remove());
+
+  const s = summariseParticipant(pid);
+  const detailRow = document.createElement("tr");
+  detailRow.className = "pdetail-row";
+  const cell = document.createElement("td");
+  cell.colSpan = 7;
+
+  let html = "";
+  s.emails.forEach(e => {
+    const email = emailsCache[e.id];
+    const total = email && email.sentences ? email.sentences.length : "?";
+    const subject = email ? (email.subject || "") : "(email not found)";
+    const position = e.cls === "done"
+      ? `finished all ${total} sentences`
+      : (e.cls === "started"
+          ? `stopped at sentence ${e.step} of ${total}`
+          : `never opened &mdash; slot held, 0 of ${total}`);
+    html += `
+      <div class="sentence-detail">
+        <div><strong>${escapeHtml(e.id)}</strong> &mdash; ${position}</div>
+        <div class="tally">${escapeHtml(subject)}</div>
+      </div>
+    `;
+  });
+
+  if (s.releasable) {
+    html += `
+      <div class="note-line">
+        Holding ${s.untouched.length} unopened email(s): ${escapeHtml(s.untouched.join(", "))}.
+        Run the release script with <strong>-p ${escapeHtml(pid)}</strong> to free those slots.
+        Their finished work is kept.
+      </div>
+    `;
+  }
+
+  cell.innerHTML = html || '<div class="tally">No assigned emails.</div>';
+  detailRow.appendChild(cell);
+  row.after(detailRow);
 }
 
 function toggleDetail(emailId, row) {
