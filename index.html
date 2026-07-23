@@ -171,6 +171,14 @@
   }
   .tick-line { font-size: 12px; color: var(--muted); margin-bottom: 14px; line-height: 1.4; }
 
+  /* Shown when the participant navigates Back onto a sentence they already
+     answered. Uses the accent-soft tone so it reads as information, not error. */
+  .revisit-note {
+    background: var(--accent-soft); border: 1px solid #c3d0f7; color: #2a3f7a;
+    border-radius: 10px; padding: 9px 11px; font-size: 12px; line-height: 1.45;
+    margin: -6px 0 14px;
+  }
+
   fieldset { border: 1px solid var(--border); border-radius: 12px; padding: 12px; margin: 0 0 14px; }
   legend { padding: 0 6px; font-weight: 800; font-size: 13px; }
 
@@ -375,6 +383,9 @@
       <div class="side-inner">
         <label>Current highlighted sentence</label>
         <div class="active-sentence" id="sentence-text"></div>
+        <div class="revisit-note hidden" id="revisit-note">
+          Your earlier answer for this sentence is shown below. Changing it will replace what you saved.
+        </div>
 
         <fieldset>
           <legend>Emotional labels</legend>
@@ -506,7 +517,44 @@ let state = {
   selectedEmotional: new Set(),
   selectedStrategy: new Set(),
   unclear: false,
+  // sentence_id -> {emotional:[], strategy:[], unclear:bool, notes:"",
+  //                 ratings:{emotional_labels:{}, strategy_labels:{}}}
+  // Local record of what this participant already submitted. Firestore rules
+  // deliberately forbid participants from reading the `labels` collection, so
+  // this cache is the only way to repopulate the panel when they press Back,
+  // and the only way to correct a shared tally on a resubmission.
+  answers: {},
 };
+
+// ---------------------------------------------------------------------
+// Answer cache persistence
+// ---------------------------------------------------------------------
+// Mirrored into localStorage so Back still restores answers after a page
+// refresh or a same-browser resume. A cross-device resume starts with an
+// empty cache; that is handled safely everywhere the cache is read.
+function answersStorageKey(participantId) {
+  return "phishing_study_answers_" + participantId;
+}
+
+function saveAnswersCache() {
+  if (!state.participantId) return;
+  try {
+    localStorage.setItem(answersStorageKey(state.participantId), JSON.stringify(state.answers));
+  } catch (e) {
+    // Quota or private-browsing failure is non-fatal: the in-memory cache
+    // still works for this session.
+    console.warn("Could not persist answer cache:", e);
+  }
+}
+
+function loadAnswersCache(participantId) {
+  try {
+    const raw = localStorage.getItem(answersStorageKey(participantId));
+    state.answers = raw ? JSON.parse(raw) : {};
+  } catch (e) {
+    state.answers = {};
+  }
+}
 
 function show(id) {
   ["screen-loading", "screen-full", "screen-intro", "screen-annotation", "screen-done"]
@@ -582,6 +630,8 @@ async function startNewParticipant() {
     state.participantId = participantId;
     state.assignedEmailIds = assignedIds;
     state.progress = {};
+    state.answers = {};
+    saveAnswersCache(); // clear any stale cache left by a previous run
     await loadCurrentEmail();
     show("screen-annotation");
   } catch (err) {
@@ -690,6 +740,11 @@ async function resumeParticipant(participantId) {
     state.participantId = participantId;
     state.assignedEmailIds = data.assigned_email_ids || [];
     state.progress = data.progress || {};
+    // Same browser -> their previous answers come back and Back works normally.
+    // Different device -> this is empty, so revisited sentences show a blank
+    // panel and the tally is left alone rather than corrupted. See case (c)
+    // in submitCurrentSentence.
+    loadAnswersCache(participantId);
     localStorage.setItem(LOCAL_STORAGE_KEY, participantId);
 
     // Find first incomplete email/step.
@@ -765,13 +820,22 @@ async function renderCurrentSentence() {
 
   document.getElementById("btn-prev").disabled = (state.currentEmailIndex === 0 && state.currentStepIndex === 0);
 
-  // Reset selection state for this sentence.
-  state.selectedEmotional = new Set();
-  state.selectedStrategy = new Set();
-  state.unclear = false;
-  document.getElementById("notes-box").value = "";
+  // Restore any answer this participant already gave for this sentence, so
+  // pressing Back shows their previous selections instead of a blank panel.
+  // Falls back to an empty panel for sentences they have not reached yet.
+  const cached = state.answers[sentence.sentence_id];
+  state.selectedEmotional = new Set(cached ? cached.emotional || [] : []);
+  state.selectedStrategy = new Set(cached ? cached.strategy || [] : []);
+  state.unclear = cached ? !!cached.unclear : false;
+  document.getElementById("notes-box").value = cached ? (cached.notes || "") : "";
   renderLabelOptions();
+  reapplySelections();
   refreshUnclearUI();
+
+  // Let the participant know a revisited answer is already saved, and that
+  // changing it will replace the old one.
+  const revisitEl = document.getElementById("revisit-note");
+  revisitEl.classList.toggle("hidden", !cached);
 
   // Live-ish tick display.
   const tickEl = document.getElementById("tick-line");
@@ -920,13 +984,23 @@ function openLikertModal() {
   rowsContainer.innerHTML = "";
   const ratings = {};
 
+  // If the participant is revising a sentence they already rated, start from
+  // the ratings they gave last time rather than resetting everything to 3.
+  const sentenceId = state.emailDocs[state.assignedEmailIds[state.currentEmailIndex]]
+    .sentences[state.currentStepIndex].sentence_id;
+  const prev = state.answers[sentenceId];
+  const prevRatings = prev
+    ? { ...(prev.ratings?.emotional_labels || {}), ...(prev.ratings?.strategy_labels || {}) }
+    : {};
+
   const allSelected = [
     ...[...state.selectedEmotional].map(id => ({ id, kind: "emotional", label: EMOTIONAL_LABELS.find(l => l.id === id) })),
     ...[...state.selectedStrategy].map(id => ({ id, kind: "strategy", label: STRATEGY_LABELS.find(l => l.id === id) })),
   ];
 
   allSelected.forEach(item => {
-    ratings[item.id] = 3; // default mid-point
+    const startValue = prevRatings[item.id] || 3; // previous rating, else mid-point
+    ratings[item.id] = startValue;
     const row = document.createElement("div");
     row.className = "rating-row";
     row.innerHTML = `<div class="label-name">${item.label.name}</div>`;
@@ -940,7 +1014,7 @@ function openLikertModal() {
       const btn = document.createElement("button");
       btn.type = "button";
       btn.textContent = v;
-      if (v === 3) btn.classList.add("selected");
+      if (v === startValue) btn.classList.add("selected");
       btn.addEventListener("click", () => {
         ratings[item.id] = v;
         scale.querySelectorAll("button").forEach(b => b.classList.remove("selected"));
@@ -973,6 +1047,18 @@ async function submitCurrentSentence(emoRatings, stratRatings) {
   const sentence = emailData.sentences[state.currentStepIndex];
   const isLastSentenceOfEmail = state.currentStepIndex === emailData.sentences.length - 1;
 
+  // Snapshot two things BEFORE anything is written, because both are about to
+  // be overwritten further down:
+  //   prevAnswer     - what this participant previously submitted for this
+  //                    sentence, so the shared tally can be corrected rather
+  //                    than left stale. Undefined on a first submission.
+  //   alreadyCompleted - whether this email was already counted as finished,
+  //                    so walking back over the last sentence cannot inflate
+  //                    completed_count past PARTICIPANTS_PER_EMAIL.
+  const prevAnswer = state.answers[sentence.sentence_id];
+  const alreadyCompleted = !!(state.progress[emailId] && state.progress[emailId].completed);
+  const noteText = (document.getElementById("notes-box").value || "").trim();
+
   document.getElementById("btn-next").disabled = true;
 
   try {
@@ -987,56 +1073,118 @@ async function submitCurrentSentence(emoRatings, stratRatings) {
       strategy_labels: [...state.selectedStrategy],
       label_ratings: { emotional_labels: emoRatings, strategy_labels: stratRatings },
       unclear: state.unclear,
-      notes: (document.getElementById("notes-box").value || "").trim(),
+      notes: noteText,
       submitted_at: serverTimestamp(),
     });
 
     // 2. Update the shared tick/tally counter transactionally.
+    //
+    // Three cases:
+    //   (a) first submission        -> add labels, increment label_count
+    //   (b) revised submission with
+    //       a known previous answer -> subtract the old labels, add the new,
+    //                                  leave label_count alone
+    //   (c) revised submission with
+    //       NO previous answer      -> the participant resumed on a different
+    //                                  device, so the local cache is empty and
+    //                                  the old selections are unknown. Leave the
+    //                                  tally untouched rather than corrupt it;
+    //                                  the raw `labels` doc is still correct and
+    //                                  the CSV export remains the source of truth.
     await runTransaction(db, async (tx) => {
       const ref = doc(db, "sentence_progress", sentence.sentence_id);
       const snap = await tx.get(ref);
-      const data = snap.exists() ? snap.data() : { label_count: 0, labeled_by: [], label_tally: { emotional_labels: {}, strategy_labels: {} } };
-      if ((data.labeled_by || []).includes(state.participantId)) {
-        return; // already counted (e.g. resubmission after resume); don't double count
+      const data = snap.exists()
+        ? snap.data()
+        : { label_count: 0, labeled_by: [], label_tally: { emotional_labels: {}, strategy_labels: {} }, notes_collected: [] };
+
+      const alreadyCounted = (data.labeled_by || []).includes(state.participantId);
+      if (alreadyCounted && !prevAnswer) {
+        return; // case (c)
       }
+
       const tally = data.label_tally || { emotional_labels: {}, strategy_labels: {} };
-      state.selectedEmotional.forEach(id => { tally.emotional_labels[id] = (tally.emotional_labels[id] || 0) + 1; });
-      state.selectedStrategy.forEach(id => { tally.strategy_labels[id] = (tally.strategy_labels[id] || 0) + 1; });
-      const noteText = (document.getElementById("notes-box").value || "").trim();
-      const notesCollected = data.notes_collected || [];
+      tally.emotional_labels = tally.emotional_labels || {};
+      tally.strategy_labels = tally.strategy_labels || {};
+
+      const bump = (bucket, id, delta) => {
+        const next = (bucket[id] || 0) + delta;
+        if (next > 0) bucket[id] = next;
+        else delete bucket[id];
+      };
+
+      // Case (b): remove the previous contribution first.
+      if (alreadyCounted && prevAnswer) {
+        (prevAnswer.emotional || []).forEach(id => bump(tally.emotional_labels, id, -1));
+        (prevAnswer.strategy || []).forEach(id => bump(tally.strategy_labels, id, -1));
+      }
+
+      state.selectedEmotional.forEach(id => bump(tally.emotional_labels, id, 1));
+      state.selectedStrategy.forEach(id => bump(tally.strategy_labels, id, 1));
+
+      // Notes are stored unattributed, so a revision removes one occurrence of
+      // the previous note text before adding the new one.
+      let notesCollected = [...(data.notes_collected || [])];
+      const prevNote = prevAnswer ? (prevAnswer.notes || "").trim() : "";
+      if (alreadyCounted && prevNote) {
+        const at = notesCollected.indexOf(prevNote);
+        if (at !== -1) notesCollected.splice(at, 1);
+      }
       if (noteText) notesCollected.push(noteText);
+
       tx.set(ref, {
         email_id: emailId,
         sentence_id: sentence.sentence_id,
-        label_count: (data.label_count || 0) + 1,
-        labeled_by: [...(data.labeled_by || []), state.participantId],
+        label_count: alreadyCounted ? (data.label_count || 0) : (data.label_count || 0) + 1,
+        labeled_by: alreadyCounted
+          ? (data.labeled_by || [])
+          : [...(data.labeled_by || []), state.participantId],
         label_tally: tally,
         notes_collected: notesCollected,
       });
     });
 
     // 3. Update participant progress.
+    // Progress only ever moves forward. Revising an earlier sentence must not
+    // drag current_step backwards or un-complete an email the participant has
+    // already finished, otherwise resume would drop them back mid-email.
+    const prevEntry = state.progress[emailId] || {};
     const newProgress = { ...state.progress };
     newProgress[emailId] = {
-      current_step: state.currentStepIndex + 1,
-      completed: isLastSentenceOfEmail,
+      current_step: Math.max(prevEntry.current_step || 0, state.currentStepIndex + 1),
+      completed: alreadyCompleted || isLastSentenceOfEmail,
     };
     state.progress = newProgress;
     await updateDoc(doc(db, "participants", state.participantId), { progress: newProgress });
 
-    // 4. If this was the last sentence of the email, bump the email's completed_count.
-    if (isLastSentenceOfEmail) {
+    // 4. If this was the last sentence of the email, bump the email's
+    // completed_count -- but only the FIRST time. Without the alreadyCompleted
+    // guard, pressing Back across an email boundary and walking forward again
+    // increments a second time, which can push an email to "completed" before
+    // three separate participants have actually labeled it.
+    if (isLastSentenceOfEmail && !alreadyCompleted) {
       await runTransaction(db, async (tx) => {
         const ref = doc(db, "emails", emailId);
         const snap = await tx.get(ref);
         const data = snap.data();
-        const newCompleted = (data.completed_count || 0) + 1;
+        const newCompleted = Math.min(PARTICIPANTS_PER_EMAIL, (data.completed_count || 0) + 1);
         tx.update(ref, {
           completed_count: newCompleted,
           status: newCompleted >= PARTICIPANTS_PER_EMAIL ? "completed" : data.status,
         });
       });
     }
+
+    // 5. Record what was submitted so Back can restore it and a later revision
+    // can correct the shared tally.
+    state.answers[sentence.sentence_id] = {
+      emotional: [...state.selectedEmotional],
+      strategy: [...state.selectedStrategy],
+      unclear: state.unclear,
+      notes: noteText,
+      ratings: { emotional_labels: emoRatings, strategy_labels: stratRatings },
+    };
+    saveAnswersCache();
 
     advanceToNext(isLastSentenceOfEmail);
   } catch (err) {
