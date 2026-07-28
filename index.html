@@ -118,6 +118,25 @@
     border: 1px solid #cdd9ff;
   }
 
+  /* Fix 9: prominent, one-time ID capture banner. */
+  .id-banner {
+    display: flex; flex-wrap: wrap; align-items: center; gap: 10px 18px;
+    background: var(--accent-soft); border: 1px solid #cdd9ff; border-radius: 14px;
+    padding: 14px 18px; margin-bottom: 16px;
+  }
+  .id-banner-main { display: flex; flex-direction: column; gap: 2px; }
+  .id-banner-label {
+    font-size: 11px; font-weight: 750; color: var(--accent);
+    text-transform: uppercase; letter-spacing: 0.05em;
+  }
+  .id-banner-id { font-size: 26px; font-weight: 800; color: var(--ink); letter-spacing: 0.04em; }
+  .id-banner-text { flex: 1 1 260px; font-size: 13px; color: #33447a; line-height: 1.45; }
+  .id-banner-dismiss {
+    background: var(--accent); color: white; border-color: var(--accent);
+    font-weight: 700; white-space: nowrap;
+  }
+  .id-banner-dismiss:hover { filter: brightness(1.05); }
+
   /* Email (left) card */
   .email-topbar {
     display: flex; justify-content: space-between; align-items: center; gap: 12px;
@@ -188,6 +207,11 @@
     font-size: 14px; cursor: pointer; padding: 2px; border-radius: 8px;
   }
   .label-option:hover { background: #f6f8ff; }
+  /* When Neutral is chosen it is mutually exclusive with the other emotions,
+     so the rest are dimmed to show they are currently unavailable. Pointer
+     events stay on so a click still switches away from Neutral. */
+  .label-option.dimmed { opacity: 0.4; }
+  .label-option.dimmed .def { opacity: 0.8; }
   .label-option input { margin-top: 2px; }
   .label-option .name { font-weight: 550; }
   .label-option .def { color: var(--muted); font-size: 12px; line-height: 1.35; margin-top: 2px; }
@@ -249,7 +273,7 @@
   }
   .modal-footer {
     padding: 14px 18px; border-top: 1px solid var(--border);
-    display: flex; justify-content: flex-end; gap: 10px; background: #fbfcff;
+    display: flex; justify-content: space-between; align-items: center; gap: 10px; background: #fbfcff;
     position: sticky; bottom: 0;
   }
 
@@ -318,6 +342,20 @@
 
   <!-- ANNOTATION -->
   <div id="screen-annotation" class="hidden">
+
+    <!-- Fix 9: shown once, when a new participant starts, so they capture the
+         ID they'll need to resume on another device or after clearing cookies.
+         Dismissable; suppressed on resume and after first dismissal. -->
+    <div id="id-banner" class="id-banner hidden">
+      <div class="id-banner-main">
+        <span class="id-banner-label">Your participant ID</span>
+        <span class="id-banner-id" id="id-banner-value"></span>
+      </div>
+      <div class="id-banner-text">
+        Write this down. You'll need it to continue on another device or if this browser's data is cleared. We can't look it up for you.
+      </div>
+      <button class="id-banner-dismiss" id="id-banner-dismiss">Got it</button>
+    </div>
 
     <!-- Instructions (v6) -->
     <section class="card instructions-card">
@@ -443,7 +481,10 @@
     </div>
     <div class="modal-footer">
       <button class="soft" id="likert-cancel">Back</button>
-      <button class="primary" id="likert-confirm">Confirm and continue</button>
+      <div style="display:flex; align-items:center; gap:12px;">
+        <span id="likert-hint" class="rating-hint"></span>
+        <button class="primary" id="likert-confirm">Confirm and continue</button>
+      </div>
     </div>
   </div>
 </div>
@@ -556,6 +597,40 @@ function loadAnswersCache(participantId) {
   }
 }
 
+// ---------------------------------------------------------------------
+// ID banner (fix 9)
+// ---------------------------------------------------------------------
+// A participant who loses their ID and their localStorage cannot be recovered:
+// resume is by ID only, and the researcher cannot read it back to them. So we
+// surface it prominently once, when they first start, and let them dismiss it.
+function idBannerDismissedKey(participantId) {
+  return "phishing_study_id_ack_" + participantId;
+}
+
+function maybeShowIdBanner(participantId, isNewParticipant) {
+  const banner = document.getElementById("id-banner");
+  let dismissed = false;
+  try {
+    dismissed = localStorage.getItem(idBannerDismissedKey(participantId)) === "1";
+  } catch (e) { /* storage unavailable -> treat as not dismissed */ }
+
+  // Always show for a brand-new participant (the moment the ID is worth
+  // capturing). On resume, show only if they never acknowledged it.
+  if (!isNewParticipant && dismissed) {
+    banner.classList.add("hidden");
+    return;
+  }
+  document.getElementById("id-banner-value").textContent = participantId;
+  banner.classList.remove("hidden");
+}
+
+document.getElementById("id-banner-dismiss").addEventListener("click", () => {
+  document.getElementById("id-banner").classList.add("hidden");
+  if (state.participantId) {
+    try { localStorage.setItem(idBannerDismissedKey(state.participantId), "1"); } catch (e) {}
+  }
+});
+
 function show(id) {
   ["screen-loading", "screen-full", "screen-intro", "screen-annotation", "screen-done"]
     .forEach(s => document.getElementById(s).classList.toggle("hidden", s !== id));
@@ -624,6 +699,12 @@ async function startNewParticipant() {
       assigned_email_ids: assignedIds,
       progress: {},
       created_at: serverTimestamp(),
+      // Stamped once, when the emails are claimed. Lets the dashboard and the
+      // release script tell "just signed up" apart from "assigned two days ago
+      // and never labeled a thing" -- the latter being who you actually want
+      // to release. Without this, a participant who labels nothing has no
+      // timestamp at all and looks identical to a brand-new arrival.
+      assigned_at: serverTimestamp(),
     });
 
     localStorage.setItem(LOCAL_STORAGE_KEY, participantId);
@@ -633,6 +714,7 @@ async function startNewParticipant() {
     state.answers = {};
     saveAnswersCache(); // clear any stale cache left by a previous run
     await loadCurrentEmail();
+    maybeShowIdBanner(participantId, true); // new participant -> show it
     show("screen-annotation");
   } catch (err) {
     console.error(err);
@@ -772,6 +854,7 @@ async function resumeParticipant(participantId) {
     state.currentStepIndex = p ? (p.current_step || 0) : 0;
 
     await loadCurrentEmail();
+    maybeShowIdBanner(participantId, false); // resume -> only if never dismissed
     show("screen-annotation");
   } catch (err) {
     console.error("Resume failed:", err);
@@ -805,7 +888,9 @@ async function renderCurrentSentence() {
   const emailData = state.emailDocs[emailId];
   const sentence = emailData.sentences[state.currentStepIndex];
 
-  document.getElementById("pid-badge").textContent = state.participantId;
+  const pidBadge = document.getElementById("pid-badge");
+  pidBadge.textContent = "ID " + state.participantId;
+  pidBadge.title = "Your participant ID. Save it to resume on another device.";
   document.getElementById("overall-progress").textContent =
     `Email ${state.currentEmailIndex + 1} of ${state.assignedEmailIds.length}`;
   document.getElementById("email-subject").textContent = emailData.subject;
@@ -937,6 +1022,15 @@ function reapplySelections() {
   document.querySelectorAll("#strategy-options input").forEach(cb => {
     cb.checked = state.selectedStrategy.has(cb.value);
   });
+
+  // Fix 7: when Neutral is selected, visibly dim the other emotional options
+  // so its exclusivity is obvious in the moment, not just buried in the
+  // instructions. Neutral itself and all strategy options stay fully lit.
+  const neutralOn = state.selectedEmotional.has("neutral");
+  document.querySelectorAll("#emotional-options .label-option").forEach(row => {
+    const isNeutral = row.dataset.labelId === "neutral";
+    row.classList.toggle("dimmed", neutralOn && !isNeutral);
+  });
 }
 
 // Keeps the unclear checkbox + its highlight state in sync with state.unclear.
@@ -984,8 +1078,10 @@ function openLikertModal() {
   rowsContainer.innerHTML = "";
   const ratings = {};
 
-  // If the participant is revising a sentence they already rated, start from
-  // the ratings they gave last time rather than resetting everything to 3.
+  // If the participant is revising a sentence they already rated, start each
+  // row on the rating they gave last time. On a FIRST pass, start with nothing
+  // selected: a pre-checked mid-point is indistinguishable in the data from a
+  // deliberate "3", so we require an explicit choice for every label instead.
   const sentenceId = state.emailDocs[state.assignedEmailIds[state.currentEmailIndex]]
     .sentences[state.currentStepIndex].sentence_id;
   const prev = state.answers[sentenceId];
@@ -998,9 +1094,25 @@ function openLikertModal() {
     ...[...state.selectedStrategy].map(id => ({ id, kind: "strategy", label: STRATEGY_LABELS.find(l => l.id === id) })),
   ];
 
+  const confirmBtn = document.getElementById("likert-confirm");
+  const hintEl = document.getElementById("likert-hint");
+
+  // Confirm stays disabled until every selected label has an explicit rating.
+  function refreshConfirmState() {
+    const remaining = allSelected.filter(item => ratings[item.id] == null).length;
+    confirmBtn.disabled = remaining > 0;
+    if (hintEl) {
+      hintEl.textContent = remaining > 0
+        ? `Rate ${remaining} more label${remaining === 1 ? "" : "s"} to continue.`
+        : "";
+    }
+  }
+
   allSelected.forEach(item => {
-    const startValue = prevRatings[item.id] || 3; // previous rating, else mid-point
-    ratings[item.id] = startValue;
+    // Seed only from a genuine previous rating; otherwise leave it unset.
+    const startValue = prevRatings[item.id];
+    if (startValue != null) ratings[item.id] = startValue;
+
     const row = document.createElement("div");
     row.className = "rating-row";
     row.innerHTML = `<div class="label-name">${item.label.name}</div>`;
@@ -1019,6 +1131,7 @@ function openLikertModal() {
         ratings[item.id] = v;
         scale.querySelectorAll("button").forEach(b => b.classList.remove("selected"));
         btn.classList.add("selected");
+        refreshConfirmState();
       });
       scale.appendChild(btn);
     }
@@ -1026,9 +1139,15 @@ function openLikertModal() {
     rowsContainer.appendChild(row);
   });
 
+  refreshConfirmState();
   document.getElementById("likert-modal").classList.remove("hidden");
 
-  document.getElementById("likert-confirm").onclick = () => {
+  confirmBtn.onclick = () => {
+    // Guard in case the button is somehow triggered while incomplete.
+    if (allSelected.some(item => ratings[item.id] == null)) {
+      refreshConfirmState();
+      return;
+    }
     document.getElementById("likert-modal").classList.add("hidden");
     const emoRatings = {};
     const stratRatings = {};
