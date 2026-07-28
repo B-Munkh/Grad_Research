@@ -289,6 +289,12 @@ function summariseParticipant(pid) {
     if (t && (!last || t > last)) last = t;
   });
 
+  // Never-labeled participants have no submission timestamp. Fall back to when
+  // they were assigned, so "assigned two days ago, labeled nothing" reads as
+  // stalled instead of masquerading as a fresh arrival.
+  const assignedAt = p.assigned_at && p.assigned_at.toDate ? p.assigned_at.toDate() : null;
+  const clock = last || assignedAt;
+
   const emails = assigned.map(id => {
     const entry = progress[id] || {};
     let cls = "untouched";
@@ -301,12 +307,17 @@ function summariseParticipant(pid) {
   const untouched = emails.filter(e => e.cls === "untouched").map(e => e.id);
   const complete = assigned.length > 0 && doneCount === assigned.length;
 
-  const age = last ? (Date.now() - last.getTime()) : Infinity;
+  const age = clock ? (Date.now() - clock.getTime()) : Infinity;
+  const staleClock = age >= STALLED_AFTER_MS;
   let status, statusClass;
   if (complete) {
     status = "Complete"; statusClass = "complete";
   } else if (mine.length === 0) {
-    status = "Never started"; statusClass = "nostart";
+    // Never labeled anything. If that's been true since assignment for longer
+    // than the stall window, they're a genuine abandoner worth releasing;
+    // otherwise they may still be reading, so hold off.
+    if (staleClock) { status = "Stalled (no labels)"; statusClass = "stalled"; }
+    else { status = "Just started"; statusClass = "nostart"; }
   } else if (age < ACTIVE_WITHIN_MS) {
     status = "Active"; statusClass = "active";
   } else if (age < STALLED_AFTER_MS) {
@@ -315,11 +326,12 @@ function summariseParticipant(pid) {
     status = "Stalled"; statusClass = "stalled";
   }
 
+  const isStalled = statusClass === "stalled";
   // Worth releasing only if they are holding slots they never opened.
   const releasable = !complete && untouched.length > 0;
 
   return { pid, assigned, emails, doneCount, untouched, labelCount: mine.length,
-           last, status, statusClass, complete, releasable };
+           last: clock, status, statusClass, isStalled, complete, releasable };
 }
 
 function renderParticipants() {
@@ -334,7 +346,7 @@ function renderParticipants() {
   const badge = document.getElementById("stalled-badge");
   const summaries = pids.map(summariseParticipant);
   const stuckSlots = summaries
-    .filter(s => s.status === "Stalled" || s.status === "Never started")
+    .filter(s => s.isStalled)
     .reduce((n, s) => n + s.untouched.length, 0);
   badge.innerHTML = stuckSlots > 0
     ? `<span class="pill" style="border-color:#f0a9a3; background:#fff6f5; color:#b42318; margin-left:8px;">${stuckSlots} slot${stuckSlots === 1 ? "" : "s"} recoverable</span>`
@@ -348,11 +360,11 @@ function renderParticipants() {
   let shown = 0;
   pids.forEach(pid => {
     const s = summariseParticipant(pid);
-    if (onlyStalled && !(s.status === "Stalled" || s.status === "Never started")) return;
+    if (onlyStalled && !s.isStalled) return;
     shown += 1;
 
     const row = document.createElement("tr");
-    row.className = "toggle-row" + (s.status === "Stalled" || s.status === "Never started" ? " row-stalled" : "");
+    row.className = "toggle-row" + (s.isStalled ? " row-stalled" : "");
 
     const chips = s.emails
       .map(e => `<span class="echip ${e.cls}" title="${e.cls}">${escapeHtml(e.id)}</span>`)
