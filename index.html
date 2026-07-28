@@ -19,6 +19,10 @@
     --active-border: #d9a800;
     --good: #067647;
     --warn: #b58900;
+    --guide-bg: #e7edff;
+    --guide-border: #cdd9ff;
+    --work-bg: #f1eefb;
+    --work-border: #d8cff0;
     --shadow: 0 8px 28px rgba(16, 24, 40, 0.08);
   }
   * { box-sizing: border-box; }
@@ -118,10 +122,11 @@
     border: 1px solid #cdd9ff;
   }
 
-  /* Fix 9: prominent, one-time ID capture banner. */
+  /* Fix 9: prominent, one-time ID capture banner. Shares the guidance tint
+     with the instructions card so the two read as the same kind of block. */
   .id-banner {
     display: flex; flex-wrap: wrap; align-items: center; gap: 10px 18px;
-    background: var(--accent-soft); border: 1px solid #cdd9ff; border-radius: 14px;
+    background: var(--guide-bg); border: 1px solid var(--guide-border); border-radius: 14px;
     padding: 14px 18px; margin-bottom: 16px;
   }
   .id-banner-main { display: flex; flex-direction: column; gap: 2px; }
@@ -176,8 +181,12 @@
   .step-info, .status { color: var(--muted); font-size: 13px; }
   .buttons { display: flex; gap: 8px; flex-wrap: wrap; }
 
-  /* Side panel (right) */
-  .side-panel { position: sticky; top: 82px; align-self: start; max-height: calc(100vh - 98px); overflow: auto; }
+  /* Side panel (right) -- the workspace where the participant actually labels.
+     Given its own tint so it's obvious this is where you act, not more reading. */
+  .side-panel {
+    position: sticky; top: 82px; align-self: start; max-height: calc(100vh - 98px); overflow: auto;
+    background: var(--work-bg); border-color: var(--work-border);
+  }
   .side-inner { padding: 15px; }
 
   .progress-box {
@@ -198,7 +207,7 @@
     margin: -6px 0 14px;
   }
 
-  fieldset { border: 1px solid var(--border); border-radius: 12px; padding: 12px; margin: 0 0 14px; }
+  fieldset { border: 1px solid var(--border); border-radius: 12px; padding: 12px; margin: 0 0 14px; background: var(--panel); }
   legend { padding: 0 6px; font-weight: 800; font-size: 13px; }
 
   .checkbox-list { display: grid; gap: 8px; margin-top: 4px; }
@@ -231,8 +240,10 @@
 
   .footer-note { font-size: 12px; color: var(--muted); line-height: 1.4; margin-top: 8px; }
 
-  /* Instructions card (v6) */
-  .instructions-card { margin-bottom: 16px; }
+  /* Instructions card (v6). Shares the guidance tint with the ID reminder so
+     the two read as the same kind of "read this" block, distinct from the white
+     email and the workspace sidebar. */
+  .instructions-card { margin-bottom: 16px; background: var(--guide-bg); border-color: var(--guide-border); }
   .instructions-inner { padding: 16px 18px; }
   .instructions-title { font-size: 16px; font-weight: 800; margin-bottom: 8px; }
   .instructions-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-top: 10px; }
@@ -669,26 +680,62 @@ document.getElementById("btn-resume").addEventListener("click", () => {
 // ---------------------------------------------------------------------
 // New participant: claim an ID, assign 4 emails
 // ---------------------------------------------------------------------
+// The ID has to be claimed up front and atomically, or two people signing up
+// at the same instant could grab the same number. But claiming up front means
+// an ID is consumed the moment someone clicks Start -- before we know whether
+// any emails are free, and before the participant doc exists. If we then bail
+// out, that number is gone forever and eats into TOTAL_PARTICIPANTS.
+//
+// Fix: whenever we bail after claiming but before the participant is committed,
+// hand the number back with a compare-and-set. If we're still the most recent
+// claimer (next_id is exactly one past ours) we roll it back; if someone else
+// has claimed since, we leave it -- a one-number gap is harmless and rolling
+// back then would be wrong. So under normal low-concurrency use no ID is
+// wasted, and under a genuine race we stay correct.
+async function reclaimCounterIfLast(claimedNum) {
+  const counterRef = doc(db, "counters", "participant_id");
+  try {
+    await runTransaction(db, async (tx) => {
+      const snap = await tx.get(counterRef);
+      const cur = snap.exists() ? snap.data().next_id : 1;
+      if (cur === claimedNum + 1) {
+        tx.set(counterRef, { next_id: claimedNum });
+      }
+    });
+  } catch (e) {
+    // Best-effort. A leftover gap is not fatal; the admin counter-recompute
+    // (see release_participant.py --recount) can squeeze it out later.
+    console.warn("Counter reclaim skipped:", e);
+  }
+}
+
 async function startNewParticipant() {
+  let claimedNum = null;   // the integer we claimed, for reclaim on failure
+  let committed = false;   // set true once the participant doc actually exists
   try {
     const counterRef = doc(db, "counters", "participant_id");
-    const participantId = await runTransaction(db, async (tx) => {
+    claimedNum = await runTransaction(db, async (tx) => {
       const snap = await tx.get(counterRef);
       const nextId = snap.exists() ? snap.data().next_id : 1;
       if (nextId > TOTAL_PARTICIPANTS) {
         return null; // study full
       }
       tx.set(counterRef, { next_id: nextId + 1 });
-      return "P" + String(nextId).padStart(2, "0");
+      return nextId;
     });
 
-    if (!participantId) {
+    if (claimedNum == null) {
       show("screen-full");
-      return;
+      return; // nothing was claimed, nothing to reclaim
     }
+
+    const participantId = "P" + String(claimedNum).padStart(2, "0");
 
     const assignedIds = await assignEmails(participantId);
     if (assignedIds.length === 0) {
+      // No open emails: this start produced no participant, so give the number
+      // back instead of burning it.
+      await reclaimCounterIfLast(claimedNum);
       show("screen-full");
       return;
     }
@@ -706,6 +753,7 @@ async function startNewParticipant() {
       // timestamp at all and looks identical to a brand-new arrival.
       assigned_at: serverTimestamp(),
     });
+    committed = true; // from here on the participant is real; never reclaim
 
     localStorage.setItem(LOCAL_STORAGE_KEY, participantId);
     state.participantId = participantId;
@@ -718,6 +766,11 @@ async function startNewParticipant() {
     show("screen-annotation");
   } catch (err) {
     console.error(err);
+    // If we claimed a number but never committed a participant (e.g. the email
+    // assignment threw), reclaim it so the failed attempt doesn't cost an ID.
+    if (claimedNum != null && !committed) {
+      await reclaimCounterIfLast(claimedNum);
+    }
     document.getElementById("intro-error").textContent = "Something went wrong starting the study: " + err.message;
     document.getElementById("intro-error").classList.remove("hidden");
   }
