@@ -19,11 +19,13 @@
     --active-border: #d9a800;
     --good: #067647;
     --warn: #b58900;
-    --guide-bg: #d4e2ff;
-    --guide-border: #a9c4ff;
-    --work-bg: #e3d3fb;
-    --work-border: #bd9eec;
-    --work-accent: #6a34d6;
+    --guide-bg: #e7eefb;
+    --guide-border: #cdd9f2;
+    --work-bg: #ece5f6;
+    --work-border: #d6c9ec;
+    --work-accent: #7c5cc9;
+    --select-bg: #eef2ff;
+    --select-border: #c4d1f5;
     --shadow: 0 8px 28px rgba(16, 24, 40, 0.08);
   }
   * { box-sizing: border-box; }
@@ -214,19 +216,26 @@
     margin: -6px 0 14px;
   }
 
-  fieldset { border: 1px solid var(--border); border-radius: 12px; padding: 12px; margin: 0 0 14px; background: var(--panel); }
-  legend { padding: 0 6px; font-weight: 800; font-size: 13px; }
-  .side-panel legend { color: var(--work-accent); }
+  fieldset { border: 1px solid var(--border); border-radius: 12px; padding: 14px; margin: 0 0 14px; background: var(--panel); }
+  /* Section titles live INSIDE the white box (a plain heading), not as a
+     <legend> straddling the border where they floated onto the tinted panel. */
+  .group-title {
+    font-weight: 800; font-size: 13px; color: var(--work-accent);
+    margin-bottom: 10px; letter-spacing: 0.01em;
+  }
 
   .checkbox-list { display: grid; gap: 8px; margin-top: 4px; }
   .label-option {
     display: grid; grid-template-columns: 20px 1fr; gap: 8px; align-items: start;
-    font-size: 14px; cursor: pointer; padding: 2px; border-radius: 8px;
+    font-size: 14px; cursor: pointer; padding: 6px; border-radius: 8px;
+    transition: background 0.12s;
   }
   .label-option:hover { background: #f6f8ff; }
-  /* When Neutral is chosen it is mutually exclusive with the other emotions,
-     so the rest are dimmed to show they are currently unavailable. Pointer
-     events stay on so a click still switches away from Neutral. */
+  /* A chosen label gets a soft highlight so the current selection is obvious. */
+  .label-option:has(input:checked) { background: var(--select-bg); }
+  /* When Neutral (or Unclear) is chosen, the options it excludes are dimmed so
+     the exclusivity is visible in the moment, not just in the instructions.
+     Pointer events stay on so a click still switches away. */
   .label-option.dimmed { opacity: 0.4; }
   .label-option.dimmed .def { opacity: 0.8; }
   .label-option input { margin-top: 2px; }
@@ -240,7 +249,9 @@
   }
   .unclear-row:hover { background: #f6f8ff; }
   .unclear-row input { margin-top: 2px; cursor: pointer; }
-  .unclear-row.active { background: var(--active); border-color: var(--active-border); }
+  /* Selected state matches a chosen label (soft highlight), not the yellow that
+     is now reserved for the active sentence in the email. */
+  .unclear-row.active { background: var(--select-bg); border-color: var(--select-border); }
   .unclear-row .name { font-weight: 600; }
   .unclear-row .def { color: var(--muted); font-size: 12px; line-height: 1.35; margin-top: 2px; }
 
@@ -441,17 +452,17 @@
         </div>
 
         <fieldset>
-          <legend>Emotional labels</legend>
+          <div class="group-title">Emotional labels</div>
           <div class="checkbox-list" id="emotional-options"></div>
         </fieldset>
 
         <fieldset>
-          <legend>Strategy labels</legend>
+          <div class="group-title">Strategy labels</div>
           <div class="checkbox-list" id="strategy-options"></div>
         </fieldset>
 
         <fieldset>
-          <legend>Unclear / notes</legend>
+          <div class="group-title">Unclear / notes</div>
           <label class="unclear-row" id="unclear-row">
             <input type="checkbox" id="unclear-checkbox">
             <div>
@@ -1058,13 +1069,19 @@ function reapplySelections() {
     cb.checked = state.selectedStrategy.has(cb.value);
   });
 
-  // Fix 7: when Neutral is selected, visibly dim the other emotional options
-  // so its exclusivity is obvious in the moment, not just buried in the
-  // instructions. Neutral itself and all strategy options stay fully lit.
+  // Dimming rules, applied in the moment so exclusivity is visible:
+  //   - Unclear on  -> every label (emotional AND strategy) is greyed out,
+  //     because marking a sentence unclear clears all label choices.
+  //   - Neutral on  -> the other emotional labels are greyed (Neutral can't be
+  //     combined with them); strategy labels stay available.
+  const unclearOn = state.unclear;
   const neutralOn = state.selectedEmotional.has("neutral");
   document.querySelectorAll("#emotional-options .label-option").forEach(row => {
     const isNeutral = row.dataset.labelId === "neutral";
-    row.classList.toggle("dimmed", neutralOn && !isNeutral);
+    row.classList.toggle("dimmed", unclearOn || (neutralOn && !isNeutral));
+  });
+  document.querySelectorAll("#strategy-options .label-option").forEach(row => {
+    row.classList.toggle("dimmed", unclearOn);
   });
 }
 
@@ -1083,8 +1100,10 @@ document.getElementById("unclear-checkbox").addEventListener("change", (e) => {
   if (state.unclear) {
     state.selectedEmotional = new Set();
     state.selectedStrategy = new Set();
-    reapplySelections();
   }
+  // Re-run on both check and uncheck so the dimming is applied when unclear
+  // turns on and removed when it turns off.
+  reapplySelections();
   refreshUnclearUI();
 });
 
