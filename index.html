@@ -19,10 +19,11 @@
     --active-border: #d9a800;
     --good: #067647;
     --warn: #b58900;
-    --guide-bg: #e7edff;
-    --guide-border: #cdd9ff;
-    --work-bg: #f1eefb;
-    --work-border: #d8cff0;
+    --guide-bg: #d4e2ff;
+    --guide-border: #a9c4ff;
+    --work-bg: #e3d3fb;
+    --work-border: #bd9eec;
+    --work-accent: #6a34d6;
     --shadow: 0 8px 28px rgba(16, 24, 40, 0.08);
   }
   * { box-sizing: border-box; }
@@ -134,13 +135,8 @@
     font-size: 11px; font-weight: 750; color: var(--accent);
     text-transform: uppercase; letter-spacing: 0.05em;
   }
-  .id-banner-id { font-size: 26px; font-weight: 800; color: var(--ink); letter-spacing: 0.04em; }
-  .id-banner-text { flex: 1 1 260px; font-size: 13px; color: #33447a; line-height: 1.45; }
-  .id-banner-dismiss {
-    background: var(--accent); color: white; border-color: var(--accent);
-    font-weight: 700; white-space: nowrap;
-  }
-  .id-banner-dismiss:hover { filter: brightness(1.05); }
+  .id-banner-id { font-size: 26px; font-weight: 800; color: var(--accent); letter-spacing: 0.04em; }
+  .id-banner-text { flex: 1 1 260px; font-size: 13px; color: #2b3d78; line-height: 1.45; }
 
   /* Email (left) card */
   .email-topbar {
@@ -186,8 +182,19 @@
   .side-panel {
     position: sticky; top: 82px; align-self: start; max-height: calc(100vh - 98px); overflow: auto;
     background: var(--work-bg); border-color: var(--work-border);
+    border-top: 3px solid var(--work-accent);
   }
   .side-inner { padding: 15px; }
+  /* Small banner at the top of the workspace so it's obvious this column is
+     where you act, distinct from the instructions you read above. */
+  .work-heading {
+    display: flex; align-items: center; gap: 8px;
+    font-size: 12px; font-weight: 800; letter-spacing: 0.04em; text-transform: uppercase;
+    color: var(--work-accent); margin: 0 0 12px;
+  }
+  .work-heading::before {
+    content: ""; width: 9px; height: 9px; border-radius: 3px; background: var(--work-accent);
+  }
 
   .progress-box {
     padding: 10px 12px; background: #f8fafc; border: 1px solid var(--border);
@@ -209,6 +216,7 @@
 
   fieldset { border: 1px solid var(--border); border-radius: 12px; padding: 12px; margin: 0 0 14px; background: var(--panel); }
   legend { padding: 0 6px; font-weight: 800; font-size: 13px; }
+  .side-panel legend { color: var(--work-accent); }
 
   .checkbox-list { display: grid; gap: 8px; margin-top: 4px; }
   .label-option {
@@ -354,10 +362,10 @@
   <!-- ANNOTATION -->
   <div id="screen-annotation" class="hidden">
 
-    <!-- Fix 9: shown once, when a new participant starts, so they capture the
-         ID they'll need to resume on another device or after clearing cookies.
-         Dismissable; suppressed on resume and after first dismissal. -->
-    <div id="id-banner" class="id-banner hidden">
+    <!-- Participant ID reminder. Always visible on the annotation screen so the
+         participant can note the ID they'll need to resume on another device or
+         after clearing browser data. Not dismissable. -->
+    <div id="id-banner" class="id-banner">
       <div class="id-banner-main">
         <span class="id-banner-label">Your participant ID</span>
         <span class="id-banner-id" id="id-banner-value"></span>
@@ -365,7 +373,6 @@
       <div class="id-banner-text">
         Write this down. You'll need it to continue on another device or if this browser's data is cleared. We can't look it up for you.
       </div>
-      <button class="id-banner-dismiss" id="id-banner-dismiss">Got it</button>
     </div>
 
     <!-- Instructions (v6) -->
@@ -395,10 +402,6 @@
           <div class="instruction-box">
             <strong>5. Use unclear only when needed</strong>
             Select unclear/hard to label only when the sentence is difficult to understand or cannot be labeled confidently.
-          </div>
-          <div class="instruction-box">
-            <strong>6. Do not judge whether the email is real or fake</strong>
-            The task is to label emotional triggers and strategies, not to decide whether the email is genuine or suspicious.
           </div>
         </div>
       </div>
@@ -430,6 +433,7 @@
     <!-- RIGHT: sticky label panel -->
     <aside class="card side-panel">
       <div class="side-inner">
+        <div class="work-heading">Your labeling workspace</div>
         <label>Current highlighted sentence</label>
         <div class="active-sentence" id="sentence-text"></div>
         <div class="revisit-note hidden" id="revisit-note">
@@ -609,38 +613,16 @@ function loadAnswersCache(participantId) {
 }
 
 // ---------------------------------------------------------------------
-// ID banner (fix 9)
+// ID banner
 // ---------------------------------------------------------------------
 // A participant who loses their ID and their localStorage cannot be recovered:
-// resume is by ID only, and the researcher cannot read it back to them. So we
-// surface it prominently once, when they first start, and let them dismiss it.
-function idBannerDismissedKey(participantId) {
-  return "phishing_study_id_ack_" + participantId;
-}
-
-function maybeShowIdBanner(participantId, isNewParticipant) {
-  const banner = document.getElementById("id-banner");
-  let dismissed = false;
-  try {
-    dismissed = localStorage.getItem(idBannerDismissedKey(participantId)) === "1";
-  } catch (e) { /* storage unavailable -> treat as not dismissed */ }
-
-  // Always show for a brand-new participant (the moment the ID is worth
-  // capturing). On resume, show only if they never acknowledged it.
-  if (!isNewParticipant && dismissed) {
-    banner.classList.add("hidden");
-    return;
-  }
+// resume is by ID only, and the researcher cannot read it back to them. So the
+// ID is kept visible at all times on the annotation screen -- there is no
+// dismiss, it simply stays put for the whole session.
+function showIdBanner(participantId) {
   document.getElementById("id-banner-value").textContent = participantId;
-  banner.classList.remove("hidden");
+  document.getElementById("id-banner").classList.remove("hidden");
 }
-
-document.getElementById("id-banner-dismiss").addEventListener("click", () => {
-  document.getElementById("id-banner").classList.add("hidden");
-  if (state.participantId) {
-    try { localStorage.setItem(idBannerDismissedKey(state.participantId), "1"); } catch (e) {}
-  }
-});
 
 function show(id) {
   ["screen-loading", "screen-full", "screen-intro", "screen-annotation", "screen-done"]
@@ -762,7 +744,7 @@ async function startNewParticipant() {
     state.answers = {};
     saveAnswersCache(); // clear any stale cache left by a previous run
     await loadCurrentEmail();
-    maybeShowIdBanner(participantId, true); // new participant -> show it
+    showIdBanner(participantId);
     show("screen-annotation");
   } catch (err) {
     console.error(err);
@@ -907,7 +889,7 @@ async function resumeParticipant(participantId) {
     state.currentStepIndex = p ? (p.current_step || 0) : 0;
 
     await loadCurrentEmail();
-    maybeShowIdBanner(participantId, false); // resume -> only if never dismissed
+    showIdBanner(participantId);
     show("screen-annotation");
   } catch (err) {
     console.error("Resume failed:", err);
