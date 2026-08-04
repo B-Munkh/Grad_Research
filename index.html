@@ -132,10 +132,11 @@
     background: var(--guide-bg); border: 1px solid var(--guide-border); border-radius: 14px;
     padding: 14px 18px; margin-bottom: 16px;
   }
-  /* Short anonymity/consent line on the intro screen. */
+  /* Short anonymity/consent line on the intro screen, shown first. */
   .consent-note {
-    background: var(--guide-bg); border: 1px solid var(--guide-border); border-radius: 10px;
-    padding: 10px 12px; margin: 4px 0 16px; font-size: 13px; line-height: 1.45; color: #2b3d78;
+    background: var(--guide-bg); border: 1px solid var(--guide-border); border-radius: 12px;
+    padding: 16px 18px; margin: 6px 0 18px; font-size: 15.5px; font-weight: 600;
+    line-height: 1.5; color: #223066;
   }
   .id-banner-main { display: flex; flex-direction: column; gap: 2px; }
   .id-banner-label {
@@ -362,14 +363,14 @@
   <!-- INTRO / "LOGIN" -->
   <div id="screen-intro" class="card center-card hidden">
     <h2>Before you begin</h2>
+    <div class="consent-note">
+      Your answers will be anonymous and will only be used for research purposes. By starting, you agree to take part.
+    </div>
     <p>You'll read 4 short emails and label each sentence with the emotions and persuasion strategies you think it uses. It takes about 15-20 minutes. Your progress is saved automatically, so you can close this tab and come back later.</p>
     <p style="margin-top:4px;">Already started on another device? Enter your participant ID below to resume instead of starting fresh.</p>
     <div style="margin-top:16px; margin-bottom:12px;">
       <label for="resume-id-input">Participant ID</label>
       <input id="resume-id-input" type="text" placeholder="e.g. P07" autocomplete="off">
-    </div>
-    <div class="consent-note">
-      Your answers will be anonymous and will only be used for research purposes. By starting, you agree to take part.
     </div>
     <div style="display:flex; gap:10px; flex-wrap:wrap;">
       <button class="soft" id="btn-resume">Resume with this ID</button>
