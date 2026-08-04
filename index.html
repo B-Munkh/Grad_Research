@@ -132,6 +132,11 @@
     background: var(--guide-bg); border: 1px solid var(--guide-border); border-radius: 14px;
     padding: 14px 18px; margin-bottom: 16px;
   }
+  /* Short anonymity/consent line on the intro screen. */
+  .consent-note {
+    background: var(--guide-bg); border: 1px solid var(--guide-border); border-radius: 10px;
+    padding: 10px 12px; margin: 4px 0 16px; font-size: 13px; line-height: 1.45; color: #2b3d78;
+  }
   .id-banner-main { display: flex; flex-direction: column; gap: 2px; }
   .id-banner-label {
     font-size: 11px; font-weight: 750; color: var(--accent);
@@ -362,6 +367,9 @@
     <div style="margin-top:16px; margin-bottom:12px;">
       <label for="resume-id-input">Participant ID</label>
       <input id="resume-id-input" type="text" placeholder="e.g. P07" autocomplete="off">
+    </div>
+    <div class="consent-note">
+      Your answers will be anonymous and will only be used for research purposes. By starting, you agree to take part.
     </div>
     <div style="display:flex; gap:10px; flex-wrap:wrap;">
       <button class="soft" id="btn-resume">Resume with this ID</button>
