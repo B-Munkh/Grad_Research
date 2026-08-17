@@ -673,18 +673,70 @@ onAuthStateChanged(auth, async (user) => {
   }
 });
 
-// Guards against double-clicking Start or Resume. A participant who isn't
-// sure the click registered and presses again should never be able to create
-// two participants (which would burn two IDs and 8 email slots instead of 4).
-// Two layers: the button is disabled synchronously, before any await, so a
-// second click in the same tick can't even fire the handler; the isStarting
-// flag is a backstop in case something else re-invokes the function (e.g. a
-// stray Enter-key submit) while the first call is still in flight.
-let isStarting = false;
+// Guards against creating two participants from one person's actions. This
+// needs to survive more than a rapid double-click:
+//   - a page refresh/reload between the click and the write completing
+//     (slow connection, accidental refresh, browser back/forward) --
+//     any in-memory flag is wiped by a reload, so it does nothing here.
+//   - a second browser tab open to the same link -- an in-memory flag is
+//     scoped per tab, so two tabs never see each other's "in progress" state.
+// localStorage solves both: it persists across reloads and is shared by every
+// tab of the same browser on this origin. A lock is stamped with a timestamp
+// the instant Start/Resume is clicked -- before any network call -- and
+// cleared when the attempt finishes. The button is simply left disabled
+// while a lock is held: no error text, it just isn't clickable. A short
+// expiry means a genuinely abandoned lock (tab closed mid-request, browser
+// crash) doesn't disable the button forever -- it re-enables on its own once
+// the lock ages out.
+const START_LOCK_KEY = "phishing_study_start_lock";
+const START_LOCK_MS = 20000; // long enough for a slow claim+assign+write, short enough not to strand anyone
+
+function startLockRemainingMs() {
+  try {
+    const raw = localStorage.getItem(START_LOCK_KEY);
+    if (!raw) return 0;
+    const ts = parseInt(raw, 10);
+    if (isNaN(ts)) return 0;
+    return Math.max(0, START_LOCK_MS - (Date.now() - ts));
+  } catch (e) {
+    return 0; // localStorage unavailable -- fail open
+  }
+}
+
+function acquireStartLock() {
+  try {
+    if (startLockRemainingMs() > 0) return false; // already in flight, this tab or another
+    localStorage.setItem(START_LOCK_KEY, String(Date.now()));
+    return true;
+  } catch (e) {
+    return true; // fail open rather than block a legitimate participant
+  }
+}
+
+function releaseStartLock() {
+  try { localStorage.removeItem(START_LOCK_KEY); } catch (e) {}
+}
+
+// Checked once on page load, in case a lock from a reload-interrupted attempt
+// is still active -- the page that "doesn't check" is exactly this case: the
+// buttons would otherwise sit enabled with no idea a request already went out.
+function applyStartLockOnLoad() {
+  const remaining = startLockRemainingMs();
+  const btn = document.getElementById("btn-start");
+  const resumeBtn = document.getElementById("btn-resume");
+  if (remaining > 0) {
+    btn.disabled = true;
+    resumeBtn.disabled = true;
+    setTimeout(() => {
+      btn.disabled = false;
+      resumeBtn.disabled = false;
+    }, remaining);
+  }
+}
+applyStartLockOnLoad();
 
 document.getElementById("btn-start").addEventListener("click", () => {
-  if (isStarting) return;
-  isStarting = true;
+  if (!acquireStartLock()) return; // already disabled in this case, but belt and suspenders
   const btn = document.getElementById("btn-start");
   const resumeBtn = document.getElementById("btn-resume");
   btn.disabled = true;
@@ -692,17 +744,16 @@ document.getElementById("btn-start").addEventListener("click", () => {
   const originalLabel = btn.textContent;
   btn.textContent = "Starting...";
   startNewParticipant().finally(() => {
-    isStarting = false;
+    releaseStartLock();
     btn.disabled = false;
     resumeBtn.disabled = false;
     btn.textContent = originalLabel;
   });
 });
 document.getElementById("btn-resume").addEventListener("click", () => {
-  if (isStarting) return;
   const id = document.getElementById("resume-id-input").value.trim().toUpperCase();
   if (!id) return;
-  isStarting = true;
+  if (!acquireStartLock()) return;
   const btn = document.getElementById("btn-start");
   const resumeBtn = document.getElementById("btn-resume");
   btn.disabled = true;
@@ -710,7 +761,7 @@ document.getElementById("btn-resume").addEventListener("click", () => {
   const originalLabel = resumeBtn.textContent;
   resumeBtn.textContent = "Resuming...";
   resumeParticipant(id).finally(() => {
-    isStarting = false;
+    releaseStartLock();
     btn.disabled = false;
     resumeBtn.disabled = false;
     resumeBtn.textContent = originalLabel;
