@@ -673,11 +673,48 @@ onAuthStateChanged(auth, async (user) => {
   }
 });
 
-document.getElementById("btn-start").addEventListener("click", startNewParticipant);
+// Guards against double-clicking Start or Resume. A participant who isn't
+// sure the click registered and presses again should never be able to create
+// two participants (which would burn two IDs and 8 email slots instead of 4).
+// Two layers: the button is disabled synchronously, before any await, so a
+// second click in the same tick can't even fire the handler; the isStarting
+// flag is a backstop in case something else re-invokes the function (e.g. a
+// stray Enter-key submit) while the first call is still in flight.
+let isStarting = false;
+
+document.getElementById("btn-start").addEventListener("click", () => {
+  if (isStarting) return;
+  isStarting = true;
+  const btn = document.getElementById("btn-start");
+  const resumeBtn = document.getElementById("btn-resume");
+  btn.disabled = true;
+  resumeBtn.disabled = true;
+  const originalLabel = btn.textContent;
+  btn.textContent = "Starting...";
+  startNewParticipant().finally(() => {
+    isStarting = false;
+    btn.disabled = false;
+    resumeBtn.disabled = false;
+    btn.textContent = originalLabel;
+  });
+});
 document.getElementById("btn-resume").addEventListener("click", () => {
+  if (isStarting) return;
   const id = document.getElementById("resume-id-input").value.trim().toUpperCase();
   if (!id) return;
-  resumeParticipant(id);
+  isStarting = true;
+  const btn = document.getElementById("btn-start");
+  const resumeBtn = document.getElementById("btn-resume");
+  btn.disabled = true;
+  resumeBtn.disabled = true;
+  const originalLabel = resumeBtn.textContent;
+  resumeBtn.textContent = "Resuming...";
+  resumeParticipant(id).finally(() => {
+    isStarting = false;
+    btn.disabled = false;
+    resumeBtn.disabled = false;
+    resumeBtn.textContent = originalLabel;
+  });
 });
 
 // ---------------------------------------------------------------------
