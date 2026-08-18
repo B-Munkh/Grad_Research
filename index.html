@@ -670,7 +670,7 @@ onAuthStateChanged(auth, async (user) => {
   state.authUid = user.uid;
   const savedId = localStorage.getItem(LOCAL_STORAGE_KEY);
   if (savedId) {
-    await resumeParticipant(savedId);
+    await resumeParticipant(savedId, { automatic: true });
   } else {
     show("screen-intro");
   }
@@ -858,6 +858,49 @@ function participantIdFor(num) {
   return "P" + String(num).padStart(2, "0");
 }
 
+// ---------------------------------------------------------------------
+// Resume tokens
+// ---------------------------------------------------------------------
+// Freed participant numbers are now reused, so a number alone no longer
+// identifies a person across time. A random token, stamped into the
+// participant doc at creation and mirrored into localStorage, lets an
+// automatic resume tell "this is my session" from "this number was reissued
+// to somebody else after I was purged".
+const RESUME_TOKEN_KEY = "phishing_study_resume_token";
+
+function newResumeToken() {
+  try {
+    if (window.crypto && typeof window.crypto.randomUUID === "function") {
+      return window.crypto.randomUUID();
+    }
+  } catch (e) { /* fall through */ }
+  return "t" + Date.now().toString(36) + Math.random().toString(36).slice(2, 10);
+}
+
+function saveResumeToken(participantId, token) {
+  try {
+    localStorage.setItem(RESUME_TOKEN_KEY, JSON.stringify({ participantId, token }));
+  } catch (e) { /* non-fatal: verification just falls back to permissive */ }
+}
+
+function readResumeToken(participantId) {
+  try {
+    const raw = localStorage.getItem(RESUME_TOKEN_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    return parsed && parsed.participantId === participantId ? parsed.token : null;
+  } catch (e) {
+    return null;
+  }
+}
+
+function clearSavedSession() {
+  try {
+    localStorage.removeItem(LOCAL_STORAGE_KEY);
+    localStorage.removeItem(RESUME_TOKEN_KEY);
+  } catch (e) { /* nothing else to do */ }
+}
+
 async function startNewParticipant() {
   let claimedNum = null;    // the integer we claimed, for reclaim on failure
   let fromFreeList = false; // whether it came from released_ids
@@ -936,12 +979,21 @@ async function startNewParticipant() {
       return;
     }
 
+    const resumeToken = newResumeToken();
     await setDoc(doc(db, "participants", participantId), {
       participant_id: participantId,
       auth_uid: state.authUid,
       assigned_email_ids: assignedIds,
       progress: {},
       created_at: serverTimestamp(),
+      // Guards against a purged participant's browser silently hijacking their
+      // old number after it has been reissued to someone else. Now that freed
+      // ids are reused, P05's abandoner still has "P05" in localStorage; without
+      // this, their next visit would auto-resume into the NEW P05's assignments
+      // and start writing labels as them. The token is stamped once here and
+      // checked only on AUTOMATIC resume -- typing an ID by hand stays open, so
+      // the documented cross-device path is unaffected.
+      resume_token: resumeToken,
       // Stamped once, when the emails are claimed. Lets the dashboard and the
       // release script tell "just signed up" apart from "assigned two days ago
       // and never labeled a thing" -- the latter being who you actually want
@@ -952,6 +1004,7 @@ async function startNewParticipant() {
     committed = true; // from here on the participant is real; never reclaim
 
     localStorage.setItem(LOCAL_STORAGE_KEY, participantId);
+    saveResumeToken(participantId, resumeToken);
     state.participantId = participantId;
     state.assignedEmailIds = assignedIds;
     state.progress = {};
@@ -1056,18 +1109,39 @@ function shuffleArray(arr) {
 // ---------------------------------------------------------------------
 // Resume
 // ---------------------------------------------------------------------
-async function resumeParticipant(participantId) {
+async function resumeParticipant(participantId, opts) {
+  const automatic = !!(opts && opts.automatic);
   show("screen-loading");
   try {
     const ref = doc(db, "participants", participantId);
     const snap = await getDoc(ref);
     if (!snap.exists()) {
-      localStorage.removeItem(LOCAL_STORAGE_KEY);
+      clearSavedSession();
       show("screen-intro");
       showIntroError("No saved progress found for that ID. Please double-check it, or start as a new participant.");
       return;
     }
     const data = snap.data();
+
+    // Automatic (localStorage-driven) resume only. If this browser's stored
+    // token does not match the one on the doc, the number was reissued after
+    // this browser's participant was removed -- so the doc belongs to somebody
+    // else now. Drop the stale session instead of silently writing labels under
+    // their ID. Docs created before resume tokens existed have no token, so
+    // they skip the check and behave exactly as before.
+    if (automatic && data.resume_token) {
+      const localToken = readResumeToken(participantId);
+      if (localToken !== data.resume_token) {
+        clearSavedSession();
+        show("screen-intro");
+        showIntroError(
+          "Your saved session is no longer valid -- that participant ID has been "
+          + "reassigned. Please start as a new participant, or contact the researcher "
+          + "if you had already completed work under it."
+        );
+        return;
+      }
+    }
     state.participantId = participantId;
     state.assignedEmailIds = data.assigned_email_ids || [];
     state.progress = data.progress || {};
@@ -1077,6 +1151,11 @@ async function resumeParticipant(participantId) {
     // in submitCurrentSentence.
     loadAnswersCache(participantId);
     localStorage.setItem(LOCAL_STORAGE_KEY, participantId);
+    // Adopt the doc's token on any successful resume, including a manually
+    // typed cross-device one. Without this, typing your ID on a new device
+    // would work once and then be rejected by the automatic check on the very
+    // next page load, because that browser holds no token.
+    if (data.resume_token) saveResumeToken(participantId, data.resume_token);
 
     // Find first incomplete email/step.
     state.currentEmailIndex = 0;
@@ -1107,7 +1186,7 @@ async function resumeParticipant(participantId) {
     show("screen-annotation");
   } catch (err) {
     console.error("Resume failed:", err);
-    localStorage.removeItem(LOCAL_STORAGE_KEY);
+    clearSavedSession();
     show("screen-intro");
     showIntroError("Could not load your saved progress (" + (err.code || err.message) + "). "
       + "Please resume on the same device/browser where you started, or start as a new participant.");
