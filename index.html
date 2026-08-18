@@ -554,7 +554,10 @@ const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
 const db = getFirestore(app);
 
-const TOTAL_PARTICIPANTS = 15;
+// Fallback only. The real value is read from meta/experiment at boot (see
+// loadExperimentConfig) so seeding a new round with a raised participant
+// target does not also require editing and redeploying this file.
+let TOTAL_PARTICIPANTS = 15;
 const EMAILS_PER_PARTICIPANT = 4;
 const PARTICIPANTS_PER_EMAIL = 3;
 const LOCAL_STORAGE_KEY = "phishing_study_participant_id";
@@ -735,6 +738,24 @@ function applyStartLockOnLoad() {
 }
 applyStartLockOnLoad();
 
+// The participant cap lives in meta/experiment, written by
+// seed_emails_to_firestore.py. Reading it here means a second seeded round
+// (which raises the target because more emails need more raters) takes effect
+// without editing this file. Falls back to the constant above if the doc is
+// missing or unreadable, so a rules/permissions problem cannot lock everyone
+// out of the study.
+async function loadExperimentConfig() {
+  try {
+    const snap = await getDoc(doc(db, "meta", "experiment"));
+    const target = snap.exists() ? snap.data().total_participants_target : null;
+    if (typeof target === "number" && target > 0) {
+      TOTAL_PARTICIPANTS = target;
+    }
+  } catch (e) {
+    console.warn("Could not read meta/experiment, using built-in participant cap:", e);
+  }
+}
+
 document.getElementById("btn-start").addEventListener("click", () => {
   if (!acquireStartLock()) return; // already disabled in this case, but belt and suspenders
   const btn = document.getElementById("btn-start");
@@ -783,50 +804,134 @@ document.getElementById("btn-resume").addEventListener("click", () => {
 // has claimed since, we leave it -- a one-number gap is harmless and rolling
 // back then would be wrong. So under normal low-concurrency use no ID is
 // wasted, and under a genuine race we stay correct.
-async function reclaimCounterIfLast(claimedNum) {
+// A single monotonic next_id cannot express "the lowest free number" once a
+// participant in the middle has been purged: after removing P05 from P01-P08,
+// no integer means "give out 5, then carry on from 9". So the counter doc also
+// carries released_ids, an explicit free list of numbers that were handed out
+// and then freed. Claims drain that list, smallest first, before advancing
+// next_id. Both fields live in ONE doc, so the whole decision stays inside a
+// single atomic transaction.
+function readCounter(snap) {
+  const data = snap.exists() ? (snap.data() || {}) : {};
+  const released = Array.isArray(data.released_ids)
+    ? data.released_ids.filter(n => typeof n === "number" && n > 0)
+    : [];
+  return {
+    next_id: typeof data.next_id === "number" && data.next_id > 0 ? data.next_id : 1,
+    released_ids: [...new Set(released)].sort((a, b) => a - b),
+  };
+}
+
+// Hand a number back after claiming it but failing to commit a participant.
+// Which way it goes back depends on where it came from: a reused number
+// returns to the free list, a freshly-issued one rolls next_id back if we are
+// still the most recent claimer.
+async function reclaimCounter(claimedNum, fromFreeList) {
   const counterRef = doc(db, "counters", "participant_id");
   try {
     await runTransaction(db, async (tx) => {
-      const snap = await tx.get(counterRef);
-      const cur = snap.exists() ? snap.data().next_id : 1;
-      if (cur === claimedNum + 1) {
-        tx.set(counterRef, { next_id: claimedNum });
+      const c = readCounter(await tx.get(counterRef));
+      if (fromFreeList) {
+        if (!c.released_ids.includes(claimedNum)) c.released_ids.push(claimedNum);
+        tx.set(counterRef, {
+          next_id: c.next_id,
+          released_ids: c.released_ids.sort((a, b) => a - b),
+        });
+      } else if (c.next_id === claimedNum + 1) {
+        tx.set(counterRef, { next_id: claimedNum, released_ids: c.released_ids });
       }
+      // Otherwise someone else has claimed since; a one-number gap is harmless
+      // and rolling back would clobber their claim.
     });
   } catch (e) {
-    // Best-effort. A leftover gap is not fatal; the admin counter-recompute
-    // (see release_participant.py --recount) can squeeze it out later.
+    // Best-effort. A leftover gap is not fatal; release_participant.py --recount
+    // rebuilds both fields from the participant docs that actually exist.
     console.warn("Counter reclaim skipped:", e);
   }
 }
 
+// How many candidate numbers the claim transaction will probe before giving
+// up. Bounds the read count so a corrupted free list cannot make signup slow.
+const MAX_ID_PROBES = 25;
+
+function participantIdFor(num) {
+  return "P" + String(num).padStart(2, "0");
+}
+
 async function startNewParticipant() {
-  let claimedNum = null;   // the integer we claimed, for reclaim on failure
-  let committed = false;   // set true once the participant doc actually exists
+  let claimedNum = null;    // the integer we claimed, for reclaim on failure
+  let fromFreeList = false; // whether it came from released_ids
+  let committed = false;    // set true once the participant doc actually exists
   try {
+    await loadExperimentConfig(); // pick up the current participant cap
+
     const counterRef = doc(db, "counters", "participant_id");
-    claimedNum = await runTransaction(db, async (tx) => {
-      const snap = await tx.get(counterRef);
-      const nextId = snap.exists() ? snap.data().next_id : 1;
-      if (nextId > TOTAL_PARTICIPANTS) {
-        return null; // study full
+    const claim = await runTransaction(db, async (tx) => {
+      const c = readCounter(await tx.get(counterRef));
+      const freeList = [...c.released_ids];
+      let probes = 0;
+      let chosen = null;
+      let reused = false;
+
+      // Every candidate is checked against the participants collection before
+      // being handed out. The free list is only ever a HINT: it can go stale if
+      // --recount ran while someone was mid-signup, or if a released number was
+      // later reoccupied. Verifying makes the whole scheme self-healing -- a
+      // stale entry is silently dropped instead of handing two people one ID.
+      // All reads happen before any write, as Firestore transactions require.
+      while (freeList.length > 0 && probes < MAX_ID_PROBES) {
+        const candidate = freeList[0];
+        probes++;
+        const pSnap = await tx.get(doc(db, "participants", participantIdFor(candidate)));
+        freeList.shift();
+        if (!pSnap.exists()) {
+          chosen = candidate;
+          reused = true;
+          break;
+        }
+        // Occupied: drop it from the list and try the next one.
       }
-      tx.set(counterRef, { next_id: nextId + 1 });
-      return nextId;
+
+      if (chosen == null) {
+        // Free list exhausted, so advance next_id -- again skipping any number
+        // that already has a participant doc behind it.
+        let candidate = c.next_id;
+        while (candidate <= TOTAL_PARTICIPANTS && probes < MAX_ID_PROBES) {
+          probes++;
+          const pSnap = await tx.get(doc(db, "participants", participantIdFor(candidate)));
+          if (!pSnap.exists()) break;
+          candidate++;
+        }
+        if (candidate > TOTAL_PARTICIPANTS) {
+          // Study full. Still persist the cleaned free list so the wasted
+          // probes are not repeated on the next attempt.
+          tx.set(counterRef, { next_id: c.next_id, released_ids: freeList });
+          return null;
+        }
+        chosen = candidate;
+        tx.set(counterRef, { next_id: chosen + 1, released_ids: freeList });
+      } else {
+        // Reused a freed number; next_id is untouched.
+        tx.set(counterRef, { next_id: c.next_id, released_ids: freeList });
+      }
+
+      return { num: chosen, reused };
     });
 
-    if (claimedNum == null) {
+    if (claim == null) {
       show("screen-full");
       return; // nothing was claimed, nothing to reclaim
     }
+    claimedNum = claim.num;
+    fromFreeList = claim.reused;
 
-    const participantId = "P" + String(claimedNum).padStart(2, "0");
+    const participantId = participantIdFor(claimedNum);
 
     const assignedIds = await assignEmails(participantId);
     if (assignedIds.length === 0) {
       // No open emails: this start produced no participant, so give the number
       // back instead of burning it.
-      await reclaimCounterIfLast(claimedNum);
+      await reclaimCounter(claimedNum, fromFreeList);
       show("screen-full");
       return;
     }
@@ -860,7 +965,7 @@ async function startNewParticipant() {
     // If we claimed a number but never committed a participant (e.g. the email
     // assignment threw), reclaim it so the failed attempt doesn't cost an ID.
     if (claimedNum != null && !committed) {
-      await reclaimCounterIfLast(claimedNum);
+      await reclaimCounter(claimedNum, fromFreeList);
     }
     document.getElementById("intro-error").textContent = "Something went wrong starting the study: " + err.message;
     document.getElementById("intro-error").classList.remove("hidden");
@@ -1018,11 +1123,17 @@ function showIntroError(msg) {
 // ---------------------------------------------------------------------
 // Loading / rendering the current email + sentence
 // ---------------------------------------------------------------------
-async function loadCurrentEmail() {
+async function loadCurrentEmail(afterFetch) {
   const emailId = state.assignedEmailIds[state.currentEmailIndex];
   if (!state.emailDocs[emailId]) {
     const snap = await getDoc(doc(db, "emails", emailId));
     state.emailDocs[emailId] = snap.data();
+  }
+  // Callers that need to position the step relative to the email's length
+  // (e.g. Back across an email boundary) run here, once the doc is guaranteed
+  // to be loaded but before anything is drawn.
+  if (typeof afterFetch === "function") {
+    afterFetch(state.emailDocs[emailId]);
   }
   renderCurrentSentence();
 }
@@ -1489,10 +1600,12 @@ function onPrevClicked() {
     renderCurrentSentence();
   } else if (state.currentEmailIndex > 0) {
     state.currentEmailIndex -= 1;
-    const prevEmailId = state.assignedEmailIds[state.currentEmailIndex];
-    const prevEmailData = state.emailDocs[prevEmailId];
-    state.currentStepIndex = prevEmailData ? prevEmailData.sentences.length - 1 : 0;
-    loadCurrentEmail();
+    // Fetch the previous email BEFORE picking the step, otherwise a participant
+    // who resumed on a fresh page load (where only the current email is cached)
+    // gets dropped at sentence 1 of the previous email instead of its last one.
+    loadCurrentEmail(prevData => {
+      state.currentStepIndex = Math.max(0, prevData.sentences.length - 1);
+    });
   }
 }
 </script>
