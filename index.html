@@ -498,8 +498,8 @@
 
   <!-- DONE -->
   <div id="screen-done" class="card center-card hidden">
-    <h2 class="status-good">All done &mdash; thank you!</h2>
-    <p>You've completed all 4 assigned emails. Your participant ID was <strong id="done-pid"></strong>.</p>
+    <h2 id="done-heading" class="status-good">All done &mdash; thank you!</h2>
+    <p><span id="done-message-lead">You've completed all 4 assigned emails.</span> Your participant ID was <strong id="done-pid"></strong>.</p>
   </div>
 </div>
 
@@ -560,6 +560,15 @@ const db = getFirestore(app);
 let TOTAL_PARTICIPANTS = 15;
 const EMAILS_PER_PARTICIPANT = 4;
 const PARTICIPANTS_PER_EMAIL = 3;
+
+// Set from meta/experiment.last_seeded_round at boot. Stamped onto every new
+// participant doc at claim time, and checked on resume: a fully-completed
+// participant whose stamped round no longer matches the current one belongs
+// to a previous round and cannot be reused for the new one, even though
+// their doc still exists and their old labels are still good data. Docs from
+// before this field existed simply have no `round`, which never matches a
+// real CURRENT_ROUND, so they are correctly caught too.
+let CURRENT_ROUND = null;
 const LOCAL_STORAGE_KEY = "phishing_study_participant_id";
 
 const EMOTIONAL_LABELS = [
@@ -668,6 +677,7 @@ onAuthStateChanged(auth, async (user) => {
     return;
   }
   state.authUid = user.uid;
+  await loadExperimentConfig(); // need CURRENT_ROUND before any resume check below
   const savedId = localStorage.getItem(LOCAL_STORAGE_KEY);
   if (savedId) {
     await resumeParticipant(savedId, { automatic: true });
@@ -747,9 +757,14 @@ applyStartLockOnLoad();
 async function loadExperimentConfig() {
   try {
     const snap = await getDoc(doc(db, "meta", "experiment"));
-    const target = snap.exists() ? snap.data().total_participants_target : null;
+    const data = snap.exists() ? snap.data() : null;
+    const target = data ? data.total_participants_target : null;
     if (typeof target === "number" && target > 0) {
       TOTAL_PARTICIPANTS = target;
+    }
+    const roundName = data ? data.last_seeded_round : null;
+    if (typeof roundName === "string" && roundName) {
+      CURRENT_ROUND = roundName;
     }
   } catch (e) {
     console.warn("Could not read meta/experiment, using built-in participant cap:", e);
@@ -1000,6 +1015,11 @@ async function startNewParticipant() {
       // to release. Without this, a participant who labels nothing has no
       // timestamp at all and looks identical to a brand-new arrival.
       assigned_at: serverTimestamp(),
+      // Which round this participant's 4 emails were drawn from. Checked on
+      // resume so a completed participant from an earlier round is told their
+      // ID is closed instead of just seeing the generic "all done" screen --
+      // see CURRENT_ROUND above.
+      round: CURRENT_ROUND,
     });
     committed = true; // from here on the participant is real; never reclaim
 
@@ -1172,8 +1192,8 @@ async function resumeParticipant(participantId, opts) {
     }
 
     if (state.currentEmailIndex >= state.assignedEmailIds.length) {
-      document.getElementById("done-pid").textContent = participantId;
-      show("screen-done");
+      const isPastRound = !!CURRENT_ROUND && data.round !== CURRENT_ROUND;
+      showDoneScreen(participantId, isPastRound);
       return;
     }
 
@@ -1191,6 +1211,21 @@ async function resumeParticipant(participantId, opts) {
     showIntroError("Could not load your saved progress (" + (err.code || err.message) + "). "
       + "Please resume on the same device/browser where you started, or start as a new participant.");
   }
+}
+
+// isPastRound: true when a fully-completed participant's stamped `round`
+// (or lack of one, for docs predating this field) does not match
+// CURRENT_ROUND -- i.e. they finished under an earlier round and this ID is
+// not valid for the one currently live.
+function showDoneScreen(participantId, isPastRound) {
+  document.getElementById("done-pid").textContent = participantId;
+  document.getElementById("done-heading").textContent = isPastRound
+    ? "This ID can't be used for this round"
+    : "All done — thank you!";
+  document.getElementById("done-message-lead").textContent = isPastRound
+    ? "This participant ID completed a previous round and can't be reused. Please start as a new participant to join the current round."
+    : "You've completed all 4 assigned emails.";
+  show("screen-done");
 }
 
 function showIntroError(msg) {
@@ -1662,8 +1697,7 @@ function advanceToNext(wasLastSentenceOfEmail) {
     state.currentEmailIndex += 1;
     state.currentStepIndex = 0;
     if (state.currentEmailIndex >= state.assignedEmailIds.length) {
-      document.getElementById("done-pid").textContent = state.participantId;
-      show("screen-done");
+      showDoneScreen(state.participantId, false); // just finished live, always the current round
       return;
     }
     loadCurrentEmail();
