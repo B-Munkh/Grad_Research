@@ -920,6 +920,7 @@ async function startNewParticipant() {
   let claimedNum = null;    // the integer we claimed, for reclaim on failure
   let fromFreeList = false; // whether it came from released_ids
   let committed = false;    // set true once the participant doc actually exists
+  let participantId = null; // hoisted out of the try so the catch can retry with it
   try {
     await loadExperimentConfig(); // pick up the current participant cap
 
@@ -983,7 +984,7 @@ async function startNewParticipant() {
     claimedNum = claim.num;
     fromFreeList = claim.reused;
 
-    const participantId = participantIdFor(claimedNum);
+    participantId = participantIdFor(claimedNum);
 
     const assignedIds = await assignEmails(participantId);
     if (assignedIds.length === 0) {
@@ -1039,9 +1040,27 @@ async function startNewParticipant() {
     // assignment threw), reclaim it so the failed attempt doesn't cost an ID.
     if (claimedNum != null && !committed) {
       await reclaimCounter(claimedNum, fromFreeList);
+      document.getElementById("intro-error").textContent = "Something went wrong starting the study: " + err.message;
+      document.getElementById("intro-error").classList.remove("hidden");
+      return;
     }
-    document.getElementById("intro-error").textContent = "Something went wrong starting the study: " + err.message;
-    document.getElementById("intro-error").classList.remove("hidden");
+    // The participant doc was already written -- the claim itself is fine,
+    // something threw afterward while loading their first email. Seen so far
+    // as a transient hiccup on some phones' first cold load (a Firebase SDK
+    // internal error, not our own code) that a plain page refresh clears --
+    // refresh re-enters through the exact same automatic-resume path below.
+    // Take that retry for them once, silently, instead of making every
+    // participant who hits this do the refresh themselves.
+    try {
+      await resumeParticipant(participantId, { automatic: true });
+    } catch (err2) {
+      console.error("Retry after claim also failed:", err2);
+      document.getElementById("intro-error").textContent =
+        "Your participant ID " + participantId + " was created and saved, but the first "
+        + "email did not load. Please refresh this page to continue -- it will pick up "
+        + "automatically from where it left off.";
+      document.getElementById("intro-error").classList.remove("hidden");
+    }
   }
 }
 
