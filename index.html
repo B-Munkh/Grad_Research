@@ -1193,6 +1193,19 @@ async function resumeParticipant(participantId, opts) {
 
     if (state.currentEmailIndex >= state.assignedEmailIds.length) {
       const isPastRound = !!CURRENT_ROUND && data.round !== CURRENT_ROUND;
+      if (isPastRound && automatic) {
+        // Silent handoff: this browser auto-resumed into an ID from a closed
+        // round on its own, the participant didn't ask for it. Rather than
+        // greet a returning rater with a warning screen, wipe the stale
+        // session and drop them on a clean intro -- clicking Start behaves
+        // exactly like a first-time visitor and claims a fresh round-3 ID.
+        // The explicit warning is reserved for someone who manually types
+        // this old ID in on purpose (the branch below still runs for that),
+        // where staying silent would look like the site ignoring their input.
+        clearSavedSession();
+        show("screen-intro");
+        return;
+      }
       showDoneScreen(participantId, isPastRound);
       return;
     }
